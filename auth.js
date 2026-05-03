@@ -1,85 +1,26 @@
 /**
- * Authentication Middleware
- * JWT verification + role-based access control
+ * Auth Routes
  */
+const express = require('express');
+const router = express.Router();
+const { body } = require('express-validator');
+const { register, login, getMe, changePassword } = require('../controllers/authController');
+const { authenticate } = require('../middleware/auth');
 
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const loginValidation = [
+  body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
+  body('password').notEmpty().withMessage('Password required'),
+];
 
-/**
- * Verify JWT token and attach user to request
- */
-const authenticate = async (req, res, next) => {
-  try {
-    // Get token from Authorization header
-    const authHeader = req.headers.authorization;
+const registerValidation = [
+  body('name').trim().isLength({ min: 2, max: 50 }).withMessage('Name must be 2-50 chars'),
+  body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 chars'),
+];
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. No token provided.',
-      });
-    }
+router.post('/login', loginValidation, login);
+router.post('/register', registerValidation, register);
+router.get('/me', authenticate, getMe);
+router.put('/change-password', authenticate, changePassword);
 
-    const token = authHeader.split(' ')[1];
-
-    // Verify token
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (err) {
-      if (err.name === 'TokenExpiredError') {
-        return res.status(401).json({
-          success: false,
-          message: 'Token expired. Please login again.',
-          code: 'TOKEN_EXPIRED',
-        });
-      }
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token.',
-      });
-    }
-
-    // Fetch user from DB (verify still exists and is active)
-    const user = await User.findById(decoded.id).select('-password');
-    if (!user || !user.isActive) {
-      return res.status(401).json({
-        success: false,
-        message: 'User not found or deactivated.',
-      });
-    }
-
-    req.user = user;
-    next();
-  } catch (err) {
-    console.error('Auth middleware error:', err);
-    res.status(500).json({ success: false, message: 'Authentication error.' });
-  }
-};
-
-/**
- * Require specific roles
- * Usage: authorize('admin') or authorize('admin', 'cashier')
- */
-const authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Not authenticated.',
-      });
-    }
-
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: `Access denied. Required role: ${roles.join(' or ')}.`,
-      });
-    }
-
-    next();
-  };
-};
-
-module.exports = { authenticate, authorize };
+module.exports = router;
