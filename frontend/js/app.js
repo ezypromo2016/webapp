@@ -77,10 +77,6 @@ const renderSidebar = (activePage) => {
     <button class="nav-item ${activePage === 'products' ? 'active' : ''}" onclick="App.navigate('products')">
       <span class="nav-icon">📦</span> Products
     </button>
-
-    <button class="nav-item ${activePage === 'printing' ? 'active' : ''}" onclick="App.navigate('printing')">
-      <span class="nav-icon">🖨</span> Printing
-    </button>
     
     <button class="nav-item ${activePage === 'transactions' ? 'active' : ''}" onclick="App.navigate('transactions')">
       <span class="nav-icon">🧾</span> Transactions
@@ -149,7 +145,6 @@ const App = (() => {
     dashboard: () => Dashboard.render(),
     pos: () => POS.render(),
     products: () => Products.render(),
-    printing: () => Printing.render(),
     transactions: (params) => Transactions.render(params),
     inventory: () => Inventory.render(),
     settings: () => Settings.render(),
@@ -211,9 +206,7 @@ window.App = App;
 
 // ── Settings Page ─────────────────────────────────────────────────────────────
 const Settings = (() => {
-  let categories = [];
-
-  const render = async () => {
+  const render = () => {
     const config = window._POS_CONFIG;
     const user = Auth.getUser();
 
@@ -266,19 +259,6 @@ const Settings = (() => {
             <button class="btn btn-secondary" onclick="Settings.changePassword()">Change Password</button>
           </div>
         </div>
-
-        <!-- Categories -->
-        <div class="card mb-md">
-          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
-            <span class="card-title">🗂 Categories</span>
-            <button class="btn btn-primary btn-sm" onclick="Settings.showCategoryModal()">+ Add Category</button>
-          </div>
-          <div class="modal-body" style="padding:0 0 16px;">
-            <div id="settings-categories-list">
-              <p class="text-sm text-muted">Loading categories…</p>
-            </div>
-          </div>
-        </div>
         
         <!-- Danger Zone -->
         <div class="card" style="border-color:var(--c-red);">
@@ -292,129 +272,6 @@ const Settings = (() => {
     </div>
   </div>
 </div>`;
-
-    await loadCategories();
-  };
-
-  const loadCategories = async () => {
-    try {
-      const res = await API.get('/categories');
-      categories = res.data;
-      renderCategoryList();
-    } catch (err) {
-      const list = document.getElementById('settings-categories-list');
-      if (list) {
-        list.innerHTML = '<p class="text-sm text-muted">Failed to load categories.</p>';
-      }
-    }
-  };
-
-  const renderCategoryList = () => {
-    const list = document.getElementById('settings-categories-list');
-    if (!list) return;
-
-    if (categories.length === 0) {
-      list.innerHTML = '<p class="text-sm text-muted">No categories yet.</p>';
-      return;
-    }
-
-    list.innerHTML = categories.map(c => `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--c-border);">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <span style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:12px;background:${escapeHTML(c.color || '#f3f4f6')};font-size:1.1rem;">${escapeHTML(c.icon || '📦')}</span>
-          <div>
-            <div style="font-weight:600;">${escapeHTML(c.name)}</div>
-            <div class="text-sm text-muted">${escapeHTML(c.description || '')}</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn btn-secondary btn-sm" onclick="Settings.showCategoryModal('${c._id}')">Edit</button>
-          <button class="btn btn-danger btn-sm" onclick="Settings.deleteCategory('${c._id}','${escapeHTML(c.name)}')">Delete</button>
-        </div>
-      </div>`).join('');
-  };
-
-  const showCategoryModal = (categoryId = '') => {
-    const category = categories.find(c => c._id === categoryId);
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.id = 'category-modal';
-    modal.innerHTML = `
-<div class="modal" style="max-width:520px;">
-  <div class="modal-header">
-    <span class="modal-title">${category ? '✏ Edit Category' : '+ Add Category'}</span>
-    <button class="btn-icon" onclick="document.getElementById('category-modal').remove()">✕</button>
-  </div>
-  <div class="modal-body">
-    <div class="form-group">
-      <label class="form-label">Name *</label>
-      <input type="text" class="form-input" id="category-name" value="${escapeHTML(category?.name || '')}" placeholder="e.g. Beverages">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Icon</label>
-      <input type="text" class="form-input" id="category-icon" value="${escapeHTML(category?.icon || '📦')}" placeholder="Emoji or icon">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Color</label>
-      <input type="color" class="form-input" id="category-color" value="${escapeHTML(category?.color || '#6366f1')}">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Description</label>
-      <textarea class="form-textarea" id="category-desc" placeholder="Optional description...">${escapeHTML(category?.description || '')}</textarea>
-    </div>
-    <div id="category-modal-error" class="form-error hidden"></div>
-  </div>
-  <div class="modal-footer">
-    <button class="btn btn-ghost" onclick="document.getElementById('category-modal').remove()">Cancel</button>
-    <button class="btn btn-primary" onclick="Settings.saveCategory('${category?._id || ''}')">${category ? 'Update Category' : 'Create Category'}</button>
-  </div>
-</div>`;
-    document.body.appendChild(modal);
-  };
-
-  const saveCategory = async (categoryId = '') => {
-    const name = document.getElementById('category-name').value.trim();
-    const icon = document.getElementById('category-icon').value.trim() || '📦';
-    const color = document.getElementById('category-color').value;
-    const description = document.getElementById('category-desc').value.trim();
-    const errEl = document.getElementById('category-modal-error');
-    errEl.classList.add('hidden');
-
-    if (!name) {
-      errEl.textContent = 'Category name is required.';
-      errEl.classList.remove('hidden');
-      return;
-    }
-
-    const data = { name, icon, color, description: description || undefined };
-
-    try {
-      if (categoryId) {
-        await API.put(`/categories/${categoryId}`, data);
-        Toast.show('Category updated', 'success');
-      } else {
-        await API.post('/categories', data);
-        Toast.show('Category added', 'success');
-      }
-      document.getElementById('category-modal')?.remove();
-      await loadCategories();
-      if (window.Products?.loadCategories) window.Products.loadCategories();
-    } catch (err) {
-      errEl.textContent = err.message;
-      errEl.classList.remove('hidden');
-    }
-  };
-
-  const deleteCategory = async (categoryId, name) => {
-    if (!confirm(`Delete category "${name}"? This will deactivate it for product assignment.`)) return;
-    try {
-      await API.delete(`/categories/${categoryId}`);
-      Toast.show('Category deleted', 'success');
-      await loadCategories();
-      if (window.Products?.loadCategories) window.Products.loadCategories();
-    } catch (err) {
-      Toast.show(err.message, 'error');
-    }
   };
 
   const saveBizInfo = () => {
@@ -453,7 +310,7 @@ const Settings = (() => {
     }
   };
 
-  return { render, saveBizInfo, changePassword, showCategoryModal, saveCategory, deleteCategory };
+  return { render, saveBizInfo, changePassword };
 })();
 
 // ── PWA Service Worker Registration ───────────────────────────────────────────
