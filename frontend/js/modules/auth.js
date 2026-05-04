@@ -46,9 +46,40 @@ const Auth = (() => {
   };
 
   const login = async (email, password) => {
-    const res = await API.post('/auth/login', { email, password });
-    setSession(res.token, res.user);
-    return res.user;
+    try {
+      const res = await API.post('/auth/login', { email, password });
+      setSession(res.token, res.user);
+      return res.user;
+    } catch (err) {
+      // Allow offline login with cached credentials
+      if (err.isOffline) {
+        const cachedUser = Storage.get('user');
+        const cachedToken = Storage.get('token');
+        const cachedCredentials = Storage.get('login_credentials');
+        
+        // Verify email matches cached account
+        if (cachedUser && cachedToken && cachedCredentials && 
+            cachedCredentials.email === email && 
+            cachedCredentials.password === btoa(password)) {
+          currentUser = cachedUser;
+          Toast.show('Offline mode: Using cached credentials', 'warning');
+          return cachedUser;
+        }
+      }
+      throw err;
+    }
+  };
+  
+  // Store credentials encrypted for offline login
+  const storeCredentials = (email, password) => {
+    try {
+      Storage.set('login_credentials', {
+        email,
+        password: btoa(password), // Simple base64, not true encryption
+      });
+    } catch (e) {
+      console.warn('Could not store credentials:', e);
+    }
   };
 
   const logout = () => {
@@ -160,6 +191,7 @@ const Auth = (() => {
 
     try {
       await login(email, password);
+      storeCredentials(email, password);
       window.App.navigate('dashboard');
       Toast.show(`Welcome back, ${currentUser.name}!`, 'success');
     } catch (err) {
@@ -200,7 +232,7 @@ const Auth = (() => {
 
   return {
     getUser, getToken, isLoggedIn, isAdmin,
-    login, logout, verify, loadFromStorage, clearSession,
+    login, logout, verify, loadFromStorage, clearSession, storeCredentials,
     renderLoginScreen, renderRegisterScreen,
     handleLogin, handleRegister, showLogin, showRegister,
   };
