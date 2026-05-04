@@ -46,25 +46,36 @@ const Auth = (() => {
   };
 
   const login = async (email, password) => {
+    const tryOfflineLogin = () => {
+      const cachedUser = Storage.get('user');
+      const cachedToken = Storage.get('token');
+      const cachedCredentials = Storage.get('login_credentials');
+
+      if (cachedUser && cachedToken && cachedCredentials &&
+          cachedCredentials.email === email &&
+          cachedCredentials.password === btoa(password)) {
+        setSession(cachedToken, cachedUser);
+        Toast.show('Offline mode: Using cached credentials', 'warning');
+        return cachedUser;
+      }
+      return null;
+    };
+
+    if (!navigator.onLine) {
+      const offlineUser = tryOfflineLogin();
+      if (offlineUser) return offlineUser;
+      throw new ApiError('No internet connection. Working offline.', 0, null, true);
+    }
+
     try {
       const res = await API.post('/auth/login', { email, password });
       setSession(res.token, res.user);
       return res.user;
     } catch (err) {
-      // Allow offline login with cached credentials
+      // Allow offline login with cached credentials on network failure
       if (err.isOffline) {
-        const cachedUser = Storage.get('user');
-        const cachedToken = Storage.get('token');
-        const cachedCredentials = Storage.get('login_credentials');
-        
-        // Verify email matches cached account
-        if (cachedUser && cachedToken && cachedCredentials && 
-            cachedCredentials.email === email && 
-            cachedCredentials.password === btoa(password)) {
-          currentUser = cachedUser;
-          Toast.show('Offline mode: Using cached credentials', 'warning');
-          return cachedUser;
-        }
+        const offlineUser = tryOfflineLogin();
+        if (offlineUser) return offlineUser;
       }
       throw err;
     }
@@ -217,6 +228,7 @@ const Auth = (() => {
     try {
       const res = await API.post('/auth/register', { name, email, password });
       setSession(res.token, res.user);
+      storeCredentials(email, password);
       window.App.navigate('dashboard');
       Toast.show('Account created successfully!', 'success');
     } catch (err) {
