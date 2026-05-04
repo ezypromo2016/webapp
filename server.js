@@ -71,7 +71,7 @@ app.use(cors({
 }));
 
 // ─── Static Files (Frontend) ──────────────────────────────────────────────────
-app.use(express.static(path.join(__dirname, '../frontend'), {
+app.use(express.static(path.join(__dirname, 'frontend'), {
   maxAge: '1d',
   etag: true,
 }));
@@ -97,9 +97,8 @@ app.get('/api/health', (req, res) => {
 
 // ─── Serve Frontend SPA ───────────────────────────────────────────────────────
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend', 'index.html'));
+  res.sendFile(path.join(__dirname, 'frontend', 'index.html'));
 });
-
 // ─── Global Error Handler ─────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
