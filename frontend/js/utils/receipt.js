@@ -27,7 +27,9 @@ const Receipt = (() => {
   // Alternative drawer commands for different cash drawer models
   const getAlternativeDrawerCommands = () => [
     { name: 'Standard ESC/POS (25ms on, 250ms off)', command: [0x1B, 0x70, 0x00, 0x19, 0xFA] },
-    { name: 'Logicowl OJ-100 (50ms on, 100ms off)', command: [0x1B, 0x70, 0x00, 0x32, 0x64] },
+    { name: 'Logicowl OJ-1000 (100ms on, 200ms off)', command: [0x1B, 0x70, 0x00, 0x64, 0xC8] },
+    { name: 'Logicowl OJ-1000 Alt (50ms on, 500ms off)', command: [0x1B, 0x70, 0x00, 0x32, 0xFA] },
+    { name: 'Logicowl OJ-1000 Pulse', command: [0x1B, 0x70, 0x00, 0xC8, 0xC8] },
     { name: 'Generic Drawer Kick 1', command: [0x1B, 0x70, 0x00, 0x32, 0xFA] },
     { name: 'Generic Drawer Kick 2', command: [0x1B, 0x70, 0x01, 0x19, 0xFA] },
     { name: 'Epson Compatible', command: [0x1B, 0x40, 0x1B, 0x70, 0x00, 0x19, 0xFA] },
@@ -305,39 +307,164 @@ const Receipt = (() => {
         await port.open({ baudRate: settings.baudRate });
         console.log('[Cash Drawer] Port opened successfully');
 
-        // Try the configured command first
-        let success = false;
-        const commands = [settings.drawerCommand, ...getAlternativeDrawerCommands().map(c => c.command)];
+  const openCashDrawer = async () => {
+    // Try Android native bridge first
+    if (window.AndroidBridge && typeof window.AndroidBridge.openCashDrawer === 'function') {
+      window.AndroidBridge.openCashDrawer();
+      Toast.show('Opening cash drawer...', 'success');
+      return true;
+    }
 
-        for (let i = 0; i < commands.length && !success; i++) {
-          try {
-            const command = new Uint8Array(commands[i]);
-            console.log(`[Cash Drawer] Trying command ${i + 1}:`, Array.from(command).map(b => b.toString(16).toUpperCase()));
+    if (window.AndroidBridge && window.AndroidBridge.openCashDrawer) {
+      // Some WebView JavaScript bridges expose methods differently.
+      window.AndroidBridge.openCashDrawer();
+      Toast.show('Opening cash drawer...', 'success');
+      return true;
+    }
 
-            const writer = port.writable.getWriter();
-            await writer.write(command);
-            await writer.close();
+    // Try Web Serial API for USB-connected printers (laptop/desktop)
+    if ('serial' in navigator) {
+      try {
+        console.log('[Cash Drawer] Attempting Web Serial API connection...');
+        Toast.show('Connecting to cash drawer...', 'info');
 
-            // Wait a bit before trying next command
-            if (i < commands.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, 500));
-            }
+        // Request a port
+        const port = await navigator.serial.requestPort();
+        console.log('[Cash Drawer] Port selected, opening connection...');
 
-            success = true;
-            console.log(`[Cash Drawer] Command ${i + 1} sent successfully`);
-          } catch (cmdErr) {
-            console.warn(`[Cash Drawer] Command ${i + 1} failed:`, cmdErr);
-          }
+        const settings = getPrinterSettings();
+        console.log('[Cash Drawer] Using settings:', settings);
+
+        await port.open({ baudRate: settings.baudRate });
+        console.log('[Cash Drawer] Port opened successfully');
+
+        // Check if this might be an OJ-1000 and adjust timing
+        const isLikelyOJ1000 = Storage.get('drawer_model') === 'oj1000' ||
+          settings.drawerCommand.some(cmd =>
+            JSON.stringify(cmd) === JSON.stringify([0x1B, 0x70, 0x00, 0x64, 0xC8]) ||
+            JSON.stringify(cmd) === JSON.stringify([0x1B, 0x70, 0x00, 0x32, 0xFA]) ||
+            JSON.stringify(cmd) === JSON.stringify([0x1B, 0x70, 0x00, 0xC8, 0xC8])
+          );
+
+        if (isLikelyOJ1000) {
+          console.log('[Cash Drawer] Detected Logicowl OJ-1000, using extended timing...');
+          return await openOJ1000Drawer(port, settings);
         }
 
-        port.close();
+        // Standard drawer opening logic
+        return await openStandardDrawer(port, settings);
+      } catch (err) {
+        console.error('[Cash Drawer] Web Serial API error:', err);
+        console.error('[Cash Drawer] Error name:', err.name);
+        console.error('[Cash Drawer] Error message:', err.message);
 
-        if (success) {
-          Toast.show('Cash drawer opened!', 'success');
-          return true;
+        if (err.name === 'NotAllowedError') {
+          Toast.show('USB permission denied. Please allow access to the cash drawer.', 'warning');
+        } else if (err.name === 'NotFoundError') {
+          Toast.show('No cash drawer found. Please connect your Logicowl OJ-1000 and try again.', 'warning');
+        } else if (err.name === 'InvalidStateError') {
+          Toast.show('Cash drawer is already in use by another application.', 'warning');
         } else {
-          throw new Error('All drawer commands failed');
+          Toast.show(`Failed to open cash drawer: ${err.message}`, 'error');
         }
+        return false;
+      }
+    }
+
+    // Fallback: show warning
+    console.warn('[Cash Drawer] No cash drawer interface available');
+    Toast.show('Cash drawer not available. Use Android app or connect USB printer.', 'warning');
+    return false;
+  };
+
+  // Specialized function for Logicowl OJ-1000
+  const openOJ1000Drawer = async (port, settings) => {
+    console.log('[Cash Drawer] Using OJ-1000 specific logic...');
+
+    // OJ-1000 specific commands with proper timing
+    const oj1000Commands = [
+      [0x1B, 0x70, 0x00, 0x64, 0xC8], // 100ms on, 200ms off
+      [0x1B, 0x70, 0x00, 0x32, 0xFA], // 50ms on, 500ms off
+      [0x1B, 0x70, 0x00, 0xC8, 0xC8], // 200ms on, 200ms off
+    ];
+
+    for (let i = 0; i < oj1000Commands.length; i++) {
+      try {
+        console.log(`[Cash Drawer] OJ-1000 attempt ${i + 1}:`, oj1000Commands[i].map(b => b.toString(16).toUpperCase()));
+
+        const command = new Uint8Array(oj1000Commands[i]);
+        const writer = port.writable.getWriter();
+        await writer.write(command);
+        await writer.close();
+
+        // Wait for solenoid to activate
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        // Send reset command to clear any lock state
+        try {
+          const resetCommand = new Uint8Array([0x1B, 0x40]); // ESC @
+          const resetWriter = port.writable.getWriter();
+          await resetWriter.write(resetCommand);
+          await resetWriter.close();
+        } catch (resetErr) {
+          console.warn('[Cash Drawer] Reset command failed:', resetErr);
+        }
+
+        console.log(`[Cash Drawer] OJ-1000 command ${i + 1} completed`);
+        Toast.show('Cash drawer opened!', 'success');
+        port.close();
+        return true;
+
+      } catch (cmdErr) {
+        console.warn(`[Cash Drawer] OJ-1000 command ${i + 1} failed:`, cmdErr);
+      }
+
+      // Wait 3 seconds between attempts for OJ-1000 (drawer needs time to reset)
+      if (i < oj1000Commands.length - 1) {
+        console.log('[Cash Drawer] Waiting 3 seconds for OJ-1000 reset...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+    }
+
+    port.close();
+    throw new Error('All OJ-1000 commands failed');
+  };
+
+  // Standard drawer opening for other models
+  const openStandardDrawer = async (port, settings) => {
+    let success = false;
+    const commands = [settings.drawerCommand, ...getAlternativeDrawerCommands().map(c => c.command)];
+
+    for (let i = 0; i < commands.length && !success; i++) {
+      try {
+        const command = new Uint8Array(commands[i]);
+        console.log(`[Cash Drawer] Trying command ${i + 1}:`, Array.from(command).map(b => b.toString(16).toUpperCase()));
+
+        const writer = port.writable.getWriter();
+        await writer.write(command);
+        await writer.close();
+
+        success = true;
+        console.log(`[Cash Drawer] Command ${i + 1} sent successfully`);
+      } catch (cmdErr) {
+        console.warn(`[Cash Drawer] Command ${i + 1} failed:`, cmdErr);
+      }
+
+      // Wait before trying next command
+      if (i < commands.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    port.close();
+
+    if (success) {
+      Toast.show('Cash drawer opened!', 'success');
+      return true;
+    } else {
+      throw new Error('All drawer commands failed');
+    }
+  };
       } catch (err) {
         console.error('[Cash Drawer] Web Serial API error:', err);
         console.error('[Cash Drawer] Error name:', err.name);
@@ -362,5 +489,5 @@ const Receipt = (() => {
     return false;
   };
 
-  return { print, exportPDF, buildHTML, openCashDrawer, getPrinterSettings, setPrinterSettings, getAlternativeDrawerCommands };
+  return { print, exportPDF, buildHTML, openCashDrawer, getPrinterSettings, setPrinterSettings, getAlternativeDrawerCommands, openOJ1000Drawer, openStandardDrawer };
 })();

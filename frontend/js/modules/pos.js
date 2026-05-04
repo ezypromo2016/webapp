@@ -884,6 +884,7 @@ ${discountAmount > 0 ? `<div class="totals-row discount-row"><span>Discount</spa
   const showDrawerDebug = () => {
     const settings = Receipt.getPrinterSettings();
     const commands = Receipt.getAlternativeDrawerCommands();
+    const currentModel = Storage.get('drawer_model') || '';
 
     const modal = document.createElement('div');
     modal.id = 'drawer-debug-modal';
@@ -929,6 +930,15 @@ ${discountAmount > 0 ? `<div class="totals-row discount-row"><span>Discount</spa
         Baud Rate: ${settings.baudRate}<br>
         Command: ${Array.from(settings.drawerCommand).map(b => '0x' + b.toString(16).toUpperCase()).join(' ')}
       </div>
+    </div>
+
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:8px;">Drawer Model</label>
+      <select id="drawer-model-select" class="form-input" onchange="POS.setDrawerModel(this.value)">
+        <option value="" ${currentModel === '' ? 'selected' : ''}>Auto-detect</option>
+        <option value="oj1000" ${currentModel === 'oj1000' ? 'selected' : ''}>Logicowl OJ-1000</option>
+        <option value="standard" ${currentModel === 'standard' ? 'selected' : ''}>Standard ESC/POS</option>
+      </select>
     </div>
 
     <div style="margin-bottom:16px;">
@@ -980,13 +990,20 @@ ${discountAmount > 0 ? `<div class="totals-row discount-row"><span>Discount</spa
     }
   };
 
-  const resetDrawerSettings = () => {
-    Receipt.setPrinterSettings({
-      baudRate: 9600,
-      drawerCommand: [0x1B, 0x70, 0x00, 0x19, 0xFA]
-    });
-    Toast.show('Settings reset to default', 'success');
-    document.getElementById('drawer-debug-modal').remove();
+  const setDrawerModel = (model) => {
+    if (model) {
+      Storage.set('drawer_model', model);
+      if (model === 'oj1000') {
+        // Set OJ-1000 specific default command
+        Receipt.setPrinterSettings({ drawerCommand: [0x1B, 0x70, 0x00, 0x64, 0xC8] });
+      } else if (model === 'standard') {
+        // Set standard ESC/POS command
+        Receipt.setPrinterSettings({ drawerCommand: [0x1B, 0x70, 0x00, 0x19, 0xFA] });
+      }
+    } else {
+      Storage.remove('drawer_model');
+    }
+    Toast.show(`Drawer model set to ${model || 'auto-detect'}`, 'success');
   };
 
   return {
@@ -994,6 +1011,6 @@ ${discountAmount > 0 ? `<div class="totals-row discount-row"><span>Discount</spa
     filterCategory, onSearch, onSearchKey,
     setDiscountType, setDiscountValue, selectPayment, updateChange,
     handleChargeClick, showCashModal, updateCashModal, setCashAmount, confirmCashPayment,
-    processPayment, switchTab, showDrawerDebug, testDrawerCommand, resetDrawerSettings,
+    processPayment, switchTab, showDrawerDebug, testDrawerCommand, resetDrawerSettings, setDrawerModel,
   };
 })();
