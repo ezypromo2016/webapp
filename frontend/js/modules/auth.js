@@ -46,6 +46,25 @@ const Auth = (() => {
     }
   };
 
+  const getOfflineDemoUser = (email, password) => {
+    const demoUsers = [
+      {
+        email: 'admin@pos.com',
+        password: 'Admin@123',
+        name: 'Admin User',
+        role: 'admin',
+      },
+      {
+        email: 'cashier@pos.com',
+        password: 'Cashier@123',
+        name: 'Cashier User',
+        role: 'cashier',
+      },
+    ];
+
+    return demoUsers.find(u => u.email === email && u.password === password) || null;
+  };
+
   const login = async (email, password) => {
     const tryOfflineLogin = () => {
       const cachedUser = Storage.get('user');
@@ -60,6 +79,15 @@ const Auth = (() => {
         Toast.show('Offline mode: Using cached credentials', 'warning');
         return cachedUser;
       }
+
+      const demoUser = getOfflineDemoUser(email, password);
+      if (demoUser) {
+        const offlineToken = `offline_demo_${Date.now()}`;
+        setSession(offlineToken, demoUser);
+        Toast.show('Offline mode: Demo credentials accepted', 'warning');
+        return demoUser;
+      }
+
       return null;
     };
 
