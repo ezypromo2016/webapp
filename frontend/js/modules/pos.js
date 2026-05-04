@@ -9,7 +9,6 @@ const POS = (() => {
   let categories = [];
   let cart = [];
   let selectedCategory = 'all';
-  let categoryEditId = null;
   let paymentMethod = 'cash';
   let discountType = 'none';
   let discountValue = 0;
@@ -32,14 +31,24 @@ const POS = (() => {
       <button class="hamburger-btn" onclick="toggleSidebar()">☰</button>
       <span class="topbar-title">🏪 POS Register</span>
       <div class="topbar-actions">
-        ${Auth.isAdmin() ? `<button class="btn btn-secondary btn-sm" onclick="POS.showCategoryManager()">Manage Categories</button>` : ''}
         <div id="network-status" class="online-indicator"><span class="online-dot"></span>Online</div>
       </div>
     </div>
     
     <div class="pos-layout">
+      <!-- Mobile Tab Bar (hidden on desktop) -->
+      <div class="pos-tab-bar" id="pos-tab-bar" style="display:none;">
+        <button class="pos-tab-btn active" id="tab-products" onclick="POS.switchTab('products')">
+          🛍 Products
+        </button>
+        <button class="pos-tab-btn" id="tab-cart" onclick="POS.switchTab('cart')">
+          🛒 Cart
+          <span class="tab-badge" id="cart-badge-tab">0</span>
+        </button>
+      </div>
+
       <!-- Left: Products -->
-      <div class="pos-left">
+      <div class="pos-left" id="pos-products-panel">
         <!-- Search -->
         <div class="pos-search">
           <span class="pos-search-icon">🔍</span>
@@ -63,14 +72,8 @@ const POS = (() => {
       
       <!-- Right: Cart -->
       <div class="pos-right" id="pos-cart-panel">
-        <!-- Mobile cart toggle -->
-        <div class="cart-toggle-btn" id="cart-toggle" onclick="POS.toggleMobileCart()">
-          <span style="font-weight:600;font-size:0.9rem;">🛒 Cart</span>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span class="cart-count" id="cart-badge">0</span>
-            <span id="cart-toggle-icon">▲</span>
-          </div>
-        </div>
+        <!-- Old mobile toggle hidden - replaced by tab bar -->
+        <div class="cart-toggle-btn" style="display:none;"></div>
         
         <div class="cart-panel" style="flex:1;min-height:0;">
           <div class="cart-header">
@@ -121,24 +124,13 @@ const POS = (() => {
             </button>
           </div>
           
-          <div id="cash-input-section" style="display:none;">
-            <label class="form-label">Cash Tendered</label>
-            <input type="number" class="form-input" id="cash-tendered" 
-              placeholder="0.00" min="0" step="0.01"
-              oninput="POS.updateChange()" style="font-size:1rem;font-family:var(--font-mono);">
-            <div id="change-display" style="display:flex;justify-content:space-between;margin-top:6px;font-family:var(--font-mono);font-size:0.9rem;">
-              <span class="text-muted">Change:</span>
-              <span id="change-amount" class="text-success fw-bold">₱0.00</span>
-            </div>
-          </div>
-          
           <div id="ref-input-section" style="display:none;">
             <label class="form-label">Reference Number</label>
             <input type="text" class="form-input" id="payment-reference" 
               placeholder="Enter reference #">
           </div>
           
-          <button class="charge-btn" id="charge-btn" disabled onclick="POS.processPayment()">
+          <button class="charge-btn" id="charge-btn" disabled onclick="POS.handleChargeClick()">
             <span id="charge-btn-text">Charge ₱0.00</span>
           </button>
         </div>
@@ -149,6 +141,9 @@ const POS = (() => {
 
     await loadData();
     setupNetworkListeners();
+    initMobileTabBar();
+    // Re-init on resize (orientation change)
+    window.addEventListener('resize', initMobileTabBar);
     // Autofocus search
     setTimeout(() => document.getElementById('product-search')?.focus(), 300);
   };
@@ -175,174 +170,15 @@ const POS = (() => {
 
   // ── Category Tabs ────────────────────────────────────────────────────────────
   const renderCategoryTabs = () => {
-    if (selectedCategory !== 'all' && !categories.some(c => c._id === selectedCategory)) {
-      selectedCategory = 'all';
-    }
-
     const tabs = [
-      `<button class="category-tab ${selectedCategory === 'all' ? 'active' : ''}" onclick="POS.filterCategory('all')" data-cat="all">🏪 All</button>`,
+      `<button class="category-tab active" onclick="POS.filterCategory('all')" data-cat="all">🏪 All</button>`,
       ...categories.map(c =>
-        `<button class="category-tab ${selectedCategory === c._id ? 'active' : ''}" onclick="POS.filterCategory('${c._id}')" data-cat="${c._id}">
+        `<button class="category-tab" onclick="POS.filterCategory('${c._id}')" data-cat="${c._id}">
           ${c.icon} ${c.name}
         </button>`
       ),
     ];
     document.getElementById('category-tabs').innerHTML = tabs.join('');
-  };
-
-  const showCategoryManager = async () => {
-    try {
-      const res = await API.get('/categories');
-      categories = res.data;
-    } catch (err) {
-      Toast.show('Failed to load categories: ' + err.message, 'error');
-      return;
-    }
-
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.id = 'category-manager-modal';
-    modal.innerHTML = `
-<div class="modal" style="max-width:720px;">
-  <div class="modal-header">
-    <span class="modal-title">🗂 Manage Categories</span>
-    <button class="btn-icon" onclick="document.getElementById('category-manager-modal').remove()">✕</button>
-  </div>
-  <div class="modal-body" style="padding:0;display:grid;grid-template-columns:1fr 1fr;gap:18px;">
-    <div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <span class="form-label" style="margin:0;">Categories</span>
-        <button class="btn btn-secondary btn-sm" onclick="POS.resetCategoryForm()">New</button>
-      </div>
-      <div id="category-manager-list" style="max-height:520px;overflow:auto;padding-right:4px;"></div>
-    </div>
-    <div>
-      <div class="form-group">
-        <label class="form-label">Name *</label>
-        <input type="text" class="form-input" id="category-name" placeholder="e.g. Beverages">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Icon</label>
-        <input type="text" class="form-input" id="category-icon" placeholder="Emoji or icon" value="📦">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Color</label>
-        <input type="color" class="form-input" id="category-color" value="#6366f1">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Description</label>
-        <textarea class="form-textarea" id="category-desc" placeholder="Optional description..."></textarea>
-      </div>
-      <div id="category-manager-error" class="form-error hidden"></div>
-      <div style="display:flex;justify-content:flex-end;gap:8px;">
-        <button class="btn btn-ghost" onclick="document.getElementById('category-manager-modal').remove()">Close</button>
-        <button class="btn btn-primary" id="category-save-btn" onclick="POS.saveCategory()">Add Category</button>
-      </div>
-    </div>
-  </div>
-</div>`;
-    document.body.appendChild(modal);
-    renderCategoryManagerList();
-    resetCategoryForm();
-  };
-
-  const renderCategoryManagerList = () => {
-    const listEl = document.getElementById('category-manager-list');
-    if (!listEl) return;
-
-    if (!categories || categories.length === 0) {
-      listEl.innerHTML = '<p class="text-sm text-muted">No categories found.</p>';
-      return;
-    }
-
-    listEl.innerHTML = categories.map(c => `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--c-border);">
-        <div style="display:flex;align-items:center;gap:10px;">
-          <span style="width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border-radius:12px;background:${escapeHTML(c.color || '#f3f4f6')};font-size:1.1rem;">${escapeHTML(c.icon || '📦')}</span>
-          <div>
-            <div style="font-weight:600;">${escapeHTML(c.name)}</div>
-            <div class="text-sm text-muted">${escapeHTML(c.description || '')}</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn btn-secondary btn-sm" onclick="POS.editCategory('${c._id}')">Edit</button>
-          <button class="btn btn-danger btn-sm" onclick="POS.deleteCategory('${c._id}','${escapeHTML(c.name)}')">Delete</button>
-        </div>
-      </div>`).join('');
-  };
-
-  const resetCategoryForm = () => {
-    categoryEditId = null;
-    document.getElementById('category-name').value = '';
-    document.getElementById('category-icon').value = '📦';
-    document.getElementById('category-color').value = '#6366f1';
-    document.getElementById('category-desc').value = '';
-    document.getElementById('category-save-btn').textContent = 'Add Category';
-    const err = document.getElementById('category-manager-error');
-    if (err) {
-      err.textContent = '';
-      err.classList.add('hidden');
-    }
-  };
-
-  const editCategory = (categoryId) => {
-    const category = categories.find(c => c._id === categoryId);
-    if (!category) return;
-    categoryEditId = categoryId;
-    document.getElementById('category-name').value = category.name;
-    document.getElementById('category-icon').value = category.icon || '📦';
-    document.getElementById('category-color').value = category.color || '#6366f1';
-    document.getElementById('category-desc').value = category.description || '';
-    document.getElementById('category-save-btn').textContent = 'Update Category';
-  };
-
-  const saveCategory = async () => {
-    const name = document.getElementById('category-name').value.trim();
-    const icon = document.getElementById('category-icon').value.trim() || '📦';
-    const color = document.getElementById('category-color').value;
-    const description = document.getElementById('category-desc').value.trim();
-    const errEl = document.getElementById('category-manager-error');
-    errEl.classList.add('hidden');
-
-    if (!name) {
-      errEl.textContent = 'Category name is required.';
-      errEl.classList.remove('hidden');
-      return;
-    }
-
-    const data = { name, icon, color, description: description || undefined };
-
-    try {
-      if (categoryEditId) {
-        await API.put(`/categories/${categoryEditId}`, data);
-        Toast.show('Category updated', 'success');
-      } else {
-        await API.post('/categories', data);
-        Toast.show('Category added', 'success');
-      }
-      await loadData();
-      renderCategoryManagerList();
-      resetCategoryForm();
-      renderCategoryTabs();
-      renderProducts(getFilteredProducts(document.getElementById('product-search')?.value || ''));
-    } catch (err) {
-      errEl.textContent = err.message;
-      errEl.classList.remove('hidden');
-    }
-  };
-
-  const deleteCategory = async (categoryId, name) => {
-    if (!confirm(`Delete category "${name}"? This will deactivate it for product assignment.`)) return;
-    try {
-      await API.delete(`/categories/${categoryId}`);
-      Toast.show('Category deleted', 'success');
-      await loadData();
-      renderCategoryManagerList();
-      renderCategoryTabs();
-      renderProducts(getFilteredProducts(document.getElementById('product-search')?.value || ''));
-    } catch (err) {
-      Toast.show(err.message, 'error');
-    }
   };
 
   const filterCategory = (catId) => {
@@ -476,14 +312,17 @@ const POS = (() => {
 
     const totalItems = cart.reduce((s, i) => s + i.quantity, 0);
     if (cartBadge) cartBadge.textContent = totalItems;
+    // Also update the mobile tab badge
+    const tabBadge = document.getElementById('cart-badge-tab');
+    if (tabBadge) tabBadge.textContent = totalItems;
     if (clearBtn) clearBtn.style.display = cart.length > 0 ? 'flex' : 'none';
     if (discountSection) discountSection.style.display = cart.length > 0 ? 'block' : 'none';
 
     if (cart.length === 0) {
       cartItemsEl.innerHTML = `<div class="cart-empty">
         <div class="cart-empty-icon">🛒</div>
-        <div class="cart-empty-title">Your cart is empty</div>
-        <div class="cart-empty-hint">Tap products on the left to add items to your order</div>
+        <div>Cart is empty</div>
+        <div class="text-sm text-muted">Tap products to add them</div>
       </div>`;
       renderTotals(0, 0, 0);
       updateChargeButton(0);
@@ -492,20 +331,17 @@ const POS = (() => {
 
     cartItemsEl.innerHTML = cart.map(item => `
 <div class="cart-item">
-  <div class="cart-item-badge" title="${escapeHTML(item.product.category?.name || 'Uncategorized')}">${item.product.category?.icon || '📦'}</div>
   <div class="cart-item-info">
     <div class="cart-item-name">${escapeHTML(item.product.name)}</div>
-    <div class="cart-item-meta">${escapeHTML(item.product.category?.name || '-')} • ${formatCurrency(item.product.price)}/ea</div>
+    <div class="cart-item-price">${formatCurrency(item.product.price)} each</div>
   </div>
-  <div class="cart-item-controls">
-    <div class="cart-qty-controls">
-      <button class="qty-btn" onclick="POS.updateQuantity('${item.product._id}', -1)" title="Remove one">−</button>
-      <span class="qty-value">${item.quantity}</span>
-      <button class="qty-btn" onclick="POS.updateQuantity('${item.product._id}', 1)" title="Add one">+</button>
-    </div>
-    <button class="cart-remove" onclick="POS.removeFromCart('${item.product._id}')" title="Remove item">✕</button>
+  <div class="cart-qty-controls">
+    <button class="qty-btn" onclick="POS.updateQuantity('${item.product._id}', -1)">−</button>
+    <span class="qty-value">${item.quantity}</span>
+    <button class="qty-btn" onclick="POS.updateQuantity('${item.product._id}', 1)">+</button>
   </div>
   <div class="cart-item-total">${formatCurrency(item.product.price * item.quantity)}</div>
+  <button class="cart-remove" onclick="POS.removeFromCart('${item.product._id}')">✕</button>
 </div>`).join('');
 
     const totals = calculateTotals();
@@ -529,12 +365,10 @@ const POS = (() => {
     if (!el) return;
 
     el.innerHTML = `
-<div class="totals-section">
-  <div class="totals-row"><span>Subtotal</span><span class="text-mono">${formatCurrency(subtotal)}</span></div>
-  ${discountAmount > 0 ? `<div class="totals-row discount-row"><span>💰 Discount</span><span class="text-mono discount-value">-${formatCurrency(discountAmount)}</span></div>` : ''}
-  <div class="totals-row tax-row"><span>Tax (12%)</span><span class="text-mono">${formatCurrency(taxAmount)}</span></div>
-  <div class="totals-row totals-grand"><span>TOTAL</span><span class="amount">${formatCurrency(total)}</span></div>
-</div>`;
+<div class="totals-row"><span>Subtotal</span><span class="text-mono">${formatCurrency(subtotal)}</span></div>
+${discountAmount > 0 ? `<div class="totals-row discount-row"><span>Discount</span><span class="text-mono">-${formatCurrency(discountAmount)}</span></div>` : ''}
+<div class="totals-row"><span>VAT (12%)</span><span class="text-mono">${formatCurrency(taxAmount)}</span></div>
+<div class="totals-row total"><span>TOTAL</span><span class="amount">${formatCurrency(total)}</span></div>`;
   };
 
   const updateChargeButton = (total) => {
@@ -565,140 +399,261 @@ const POS = (() => {
     ['cash', 'gcash', 'card'].forEach(m => {
       document.getElementById(`pm-${m}`)?.classList.toggle('active', m === method);
     });
+    const refSection = document.getElementById('ref-input-section');
+    if (refSection) refSection.style.display = ['gcash', 'card'].includes(method) ? 'block' : 'none';
+  };
 
-    if (method === 'cash') {
-      showCashPaymentModal();
+  const updateChange = () => {};
+
+  // ── Cash Payment Modal ────────────────────────────────────────────────────────
+  const handleChargeClick = () => {
+    if (cart.length === 0 || isProcessing) return;
+    if (paymentMethod === 'cash') {
+      showCashModal();
     } else {
-      const cashSection = document.getElementById('cash-input-section');
-      const refSection = document.getElementById('ref-input-section');
-      if (cashSection) cashSection.style.display = 'none';
-      if (refSection) refSection.style.display = 'block';
-      updateChange();
+      processPayment();
     }
   };
 
-  const showCashPaymentModal = () => {
+  const showCashModal = () => {
     const totals = calculateTotals();
-    
+    const total = totals.total;
+
+    // Remove existing modal if any
+    document.getElementById('cash-modal')?.remove();
+
     const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.id = 'cash-payment-modal';
+    modal.id = 'cash-modal';
+    modal.style.cssText = `
+      position: fixed; inset: 0; z-index: 1000;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.75); backdrop-filter: blur(6px);
+      animation: fadeIn 0.15s ease; padding: 16px;
+    `;
+
     modal.innerHTML = `
-<div class="modal cash-payment-modal">
-  <div class="modal-header">
-    <span class="modal-title">💵 Cash Payment</span>
-    <button class="btn-icon" onclick="document.getElementById('cash-payment-modal').remove()">✕</button>
-  </div>
-  
-  <div class="modal-body" style="display:flex;flex-direction:column;gap:24px;padding:32px;">
-    
-    <!-- Total Amount Display -->
-    <div class="cash-total-box">
-      <span class="cash-total-label">Total Amount</span>
-      <span class="cash-total-amount">${formatCurrency(totals.total)}</span>
-    </div>
-    
-    <!-- Cash Tendered Input -->
-    <div class="cash-input-group">
-      <label class="form-label">Cash Tendered</label>
-      <input type="number" 
-        class="cash-input-field" 
-        id="cash-modal-tendered" 
-        placeholder="0.00" 
-        min="0" 
-        step="0.01"
-        oninput="POS.updateCashModalChange()"
-        autofocus>
-    </div>
-    
-    <!-- Change Display -->
-    <div class="cash-change-box">
-      <div class="cash-change-row">
-        <span class="cash-change-label">Change</span>
-        <span class="cash-change-amount" id="cash-modal-change">₱0.00</span>
+<div style="
+  background: var(--c-surface);
+  border: 1px solid var(--c-border2);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.7);
+  animation: slideUp 0.25s cubic-bezier(0.4,0,0.2,1);
+  overflow: hidden;
+">
+  <!-- Header -->
+  <div style="
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--c-border);
+    display: flex; align-items: center; justify-content: space-between;
+  ">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div style="
+        width:38px;height:38px;border-radius:10px;
+        background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);
+        display:flex;align-items:center;justify-content:center;font-size:1.2rem;
+      ">💵</div>
+      <div>
+        <div style="font-family:var(--font-display);font-weight:700;font-size:0.95rem;">Cash Payment</div>
+        <div style="font-size:0.72rem;color:var(--c-text-3);font-family:var(--font-mono);">Enter amount received</div>
       </div>
-      <div class="cash-change-indicator" id="cash-change-indicator"></div>
     </div>
-    
-    <!-- Action Buttons -->
-    <div style="display:flex;gap:12px;">
-      <button class="btn btn-ghost btn-block" onclick="document.getElementById('cash-payment-modal').remove()">Cancel</button>
-      <button class="btn btn-primary btn-block" style="font-size:1rem;padding:14px;font-weight:700;" 
-        onclick="POS.confirmCashPayment(${totals.total})">
-        Complete Payment
-      </button>
+    <button onclick="document.getElementById('cash-modal').remove()"
+      style="background:var(--c-surface3);border:1px solid var(--c-border);border-radius:8px;
+             color:var(--c-text-3);width:32px;height:32px;cursor:pointer;font-size:1rem;
+             display:flex;align-items:center;justify-content:center;">✕</button>
+  </div>
+
+  <!-- Total Amount Display -->
+  <div style="
+    margin: 20px 24px 0;
+    background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(99,102,241,0.05));
+    border: 1px solid rgba(99,102,241,0.2);
+    border-radius: 14px;
+    padding: 16px 20px;
+    display: flex; justify-content: space-between; align-items: center;
+  ">
+    <div>
+      <div style="font-family:var(--font-mono);font-size:0.65rem;letter-spacing:0.1em;
+                  text-transform:uppercase;color:var(--c-text-3);margin-bottom:4px;">Total Amount Due</div>
+      <div style="font-family:var(--font-display);font-size:1.8rem;font-weight:800;
+                  letter-spacing:-0.03em;color:var(--c-primary-light);">${formatCurrency(total)}</div>
     </div>
+    <div style="font-size:2.5rem;opacity:0.15;">🧾</div>
+  </div>
+
+  <!-- Cash Tendered Input -->
+  <div style="padding: 20px 24px 0;">
+    <label style="
+      display:block;font-family:var(--font-mono);font-size:0.65rem;
+      letter-spacing:0.1em;text-transform:uppercase;color:var(--c-text-3);
+      margin-bottom:8px;
+    ">Cash Tendered</label>
+    <div style="position:relative;">
+      <span style="
+        position:absolute;left:14px;top:50%;transform:translateY(-50%);
+        font-family:var(--font-mono);font-size:1rem;color:var(--c-text-3);
+        pointer-events:none;
+      ">₱</span>
+      <input type="number" id="cash-tendered-modal"
+        placeholder="0.00" min="0" step="0.01"
+        oninput="POS.updateCashModal(${total})"
+        style="
+          width:100%;background:var(--c-surface3);border:2px solid var(--c-border2);
+          color:var(--c-text);padding:14px 14px 14px 32px;border-radius:12px;
+          font-size:1.4rem;font-family:var(--font-mono);font-weight:600;
+          outline:none;transition:border-color 0.15s ease;
+          -webkit-appearance:none;
+        "
+        onfocus="this.style.borderColor='var(--c-primary)'"
+        onblur="this.style.borderColor='var(--c-border2)'"
+      >
+    </div>
+
+    <!-- Quick amount buttons -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;">
+      ${[20,50,100,200,500,1000].filter(v => v >= Math.ceil(total/10)*10).slice(0,4).concat([500,1000]).slice(0,4).map(amt => `
+        <button onclick="POS.setCashAmount(${amt}, ${total})"
+          style="
+            padding:8px 4px;border-radius:8px;
+            border:1px solid var(--c-border);background:var(--c-surface2);
+            color:var(--c-text-2);font-family:var(--font-mono);font-size:0.78rem;
+            cursor:pointer;transition:all 0.12s ease;font-weight:500;
+          "
+          onmouseover="this.style.borderColor='var(--c-primary)';this.style.color='var(--c-primary-light)'"
+          onmouseout="this.style.borderColor='var(--c-border)';this.style.color='var(--c-text-2)'"
+        >₱${amt.toLocaleString()}</button>
+      `).join('')}
+    </div>
+
+    <!-- Exact amount button -->
+    <button onclick="POS.setCashAmount(${total}, ${total})"
+      style="
+        width:100%;margin-top:8px;padding:9px;border-radius:8px;
+        border:1px dashed var(--c-border2);background:transparent;
+        color:var(--c-text-3);font-size:0.78rem;font-family:var(--font-mono);
+        cursor:pointer;transition:all 0.12s ease;
+      "
+      onmouseover="this.style.borderColor='var(--c-green)';this.style.color='var(--c-green)'"
+      onmouseout="this.style.borderColor='var(--c-border2)';this.style.color='var(--c-text-3)'"
+    >Exact Amount — ${formatCurrency(total)}</button>
+  </div>
+
+  <!-- Change Display -->
+  <div id="change-display-modal" style="
+    margin: 16px 24px 0;
+    padding: 14px 18px;
+    background: var(--c-surface2);
+    border: 1px solid var(--c-border);
+    border-radius: 12px;
+    display: flex; justify-content: space-between; align-items: center;
+    transition: all 0.2s ease;
+  ">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:1.1rem;">💰</span>
+      <span style="font-family:var(--font-mono);font-size:0.7rem;
+                   letter-spacing:0.08em;text-transform:uppercase;color:var(--c-text-3);">Change</span>
+    </div>
+    <span id="change-amount-modal" style="
+      font-family:var(--font-display);font-size:1.4rem;font-weight:800;
+      color:var(--c-text-3);letter-spacing:-0.02em;
+    ">₱0.00</span>
+  </div>
+
+  <!-- Action Buttons -->
+  <div style="padding: 20px 24px 24px; display:flex; gap:10px;">
+    <button onclick="document.getElementById('cash-modal').remove()"
+      style="
+        flex:1;padding:13px;border-radius:12px;
+        border:1px solid var(--c-border);background:var(--c-surface2);
+        color:var(--c-text-2);font-size:0.9rem;font-weight:500;cursor:pointer;
+      ">Cancel</button>
+    <button id="confirm-cash-btn" onclick="POS.confirmCashPayment(${total})"
+      disabled
+      style="
+        flex:2;padding:13px;border-radius:12px;border:none;
+        background:var(--c-surface3);color:var(--c-text-3);
+        font-family:var(--font-display);font-size:1rem;font-weight:700;
+        cursor:not-allowed;transition:all 0.2s ease;
+        display:flex;align-items:center;justify-content:center;gap:8px;
+      ">
+      <span>Confirm Payment</span>
+    </button>
   </div>
 </div>`;
-    
+
     document.body.appendChild(modal);
-    updateCashModalChange();
-    document.getElementById('cash-modal-tendered')?.focus();
+    // Focus the input after a short delay
+    setTimeout(() => document.getElementById('cash-tendered-modal')?.focus(), 100);
   };
 
-  const updateCashModalChange = () => {
-    const totals = calculateTotals();
-    const tendered = parseFloat(document.getElementById('cash-modal-tendered')?.value) || 0;
-    const change = tendered - totals.total;
-    const changeEl = document.getElementById('cash-modal-change');
-    const indicatorEl = document.getElementById('cash-change-indicator');
-    
-    if (changeEl) {
-      if (tendered < totals.total) {
-        changeEl.textContent = `₱${Math.abs(change).toFixed(2)} short`;
-        changeEl.style.color = 'var(--c-red)';
-        if (indicatorEl) {
-          indicatorEl.innerHTML = '<span style="color:var(--c-red);">⚠ Insufficient amount</span>';
-        }
+  const updateCashModal = (total) => {
+    const input = document.getElementById('cash-tendered-modal');
+    const changeEl = document.getElementById('change-amount-modal');
+    const changeBox = document.getElementById('change-display-modal');
+    const confirmBtn = document.getElementById('confirm-cash-btn');
+    if (!input || !changeEl) return;
+
+    const tendered = parseFloat(input.value) || 0;
+    const change = tendered - total;
+    const sufficient = tendered >= total;
+
+    changeEl.textContent = sufficient ? formatCurrency(change) : '—';
+    changeEl.style.color = sufficient ? 'var(--c-green)' : 'var(--c-text-3)';
+
+    if (changeBox) {
+      changeBox.style.borderColor = sufficient ? 'rgba(34,197,94,0.3)' : 'var(--c-border)';
+      changeBox.style.background = sufficient ? 'rgba(34,197,94,0.05)' : 'var(--c-surface2)';
+    }
+
+    if (confirmBtn) {
+      if (sufficient) {
+        confirmBtn.disabled = false;
+        confirmBtn.style.background = 'var(--c-green)';
+        confirmBtn.style.color = 'white';
+        confirmBtn.style.cursor = 'pointer';
+        confirmBtn.style.boxShadow = '0 0 20px rgba(34,197,94,0.25)';
       } else {
-        changeEl.textContent = formatCurrency(Math.max(0, change));
-        changeEl.style.color = 'var(--c-green)';
-        if (indicatorEl) {
-          indicatorEl.innerHTML = '<span style="color:var(--c-green);">✓ Ready to process</span>';
-        }
+        confirmBtn.disabled = true;
+        confirmBtn.style.background = 'var(--c-surface3)';
+        confirmBtn.style.color = 'var(--c-text-3)';
+        confirmBtn.style.cursor = 'not-allowed';
+        confirmBtn.style.boxShadow = 'none';
       }
+    }
+
+    // Highlight input border
+    if (input) {
+      input.style.borderColor = tendered === 0 ? 'var(--c-border2)'
+        : sufficient ? 'var(--c-green)' : 'var(--c-red)';
     }
   };
 
-  const confirmCashPayment = (totalAmount) => {
-    const tendered = parseFloat(document.getElementById('cash-modal-tendered')?.value) || 0;
-    if (tendered < totalAmount) {
+  const setCashAmount = (amount, total) => {
+    const input = document.getElementById('cash-tendered-modal');
+    if (input) {
+      input.value = amount.toFixed(2);
+      updateCashModal(total);
+    }
+  };
+
+  const confirmCashPayment = (total) => {
+    const tendered = parseFloat(document.getElementById('cash-tendered-modal')?.value) || 0;
+    if (tendered < total) {
       Toast.show('Cash amount is less than total!', 'error');
       return;
     }
-    document.getElementById('cash-input-section').style.display = 'none';
-    const refSection = document.getElementById('ref-input-section');
-    if (refSection) refSection.style.display = 'none';
-    document.getElementById('cash-payment-modal')?.remove();
-    document.getElementById('cash-tendered').value = tendered;
-    updateChange();
-    processPayment();
-  };
-
-  const updateChange = () => {
-    if (paymentMethod !== 'cash') return;
-    const totals = calculateTotals();
-    const tendered = parseFloat(document.getElementById('cash-tendered')?.value) || 0;
-    const change = Math.max(0, tendered - totals.total);
-    const el = document.getElementById('change-amount');
-    if (el) el.textContent = formatCurrency(change);
+    document.getElementById('cash-modal')?.remove();
+    processPayment(tendered);
   };
 
   // ── Process Payment ───────────────────────────────────────────────────────────
-  const processPayment = async () => {
+  const processPayment = async (cashTendered = null) => {
     if (cart.length === 0 || isProcessing) return;
 
     const totals = calculateTotals();
-
-    // Validate cash tendered
-    if (paymentMethod === 'cash') {
-      const tendered = parseFloat(document.getElementById('cash-tendered')?.value) || 0;
-      if (tendered < totals.total) {
-        Toast.show('Cash amount is less than total!', 'error');
-        document.getElementById('cash-tendered')?.focus();
-        return;
-      }
-    }
+    const tendered = cashTendered !== null ? cashTendered : totals.total;
 
     isProcessing = true;
     const btn = document.getElementById('charge-btn');
@@ -712,9 +667,7 @@ const POS = (() => {
       discountValue,
       taxRate: TAX_RATE,
       paymentMethod,
-      amountTendered: paymentMethod === 'cash'
-        ? parseFloat(document.getElementById('cash-tendered')?.value) || totals.total
-        : totals.total,
+      amountTendered: paymentMethod === 'cash' ? tendered : totals.total,
       paymentReference: document.getElementById('payment-reference')?.value || null,
     };
 
@@ -806,12 +759,47 @@ const POS = (() => {
     document.body.appendChild(modal);
   };
 
-  // ── Mobile cart toggle ────────────────────────────────────────────────────────
-  const toggleMobileCart = () => {
-    const panel = document.getElementById('pos-cart-panel');
-    const icon = document.getElementById('cart-toggle-icon');
-    panel.classList.toggle('cart-expanded');
-    if (icon) icon.textContent = panel.classList.contains('cart-expanded') ? '▼' : '▲';
+  // ── Mobile Tab Switching ──────────────────────────────────────────────────────
+  const switchTab = (tab) => {
+    const productsPanel = document.getElementById('pos-products-panel');
+    const cartPanel = document.getElementById('pos-cart-panel');
+    const tabProducts = document.getElementById('tab-products');
+    const tabCart = document.getElementById('tab-cart');
+
+    if (tab === 'products') {
+      productsPanel?.classList.remove('hidden-mobile');
+      cartPanel?.classList.add('hidden-mobile');
+      tabProducts?.classList.add('active');
+      tabCart?.classList.remove('active');
+    } else {
+      productsPanel?.classList.add('hidden-mobile');
+      cartPanel?.classList.remove('hidden-mobile');
+      tabProducts?.classList.remove('active');
+      tabCart?.classList.add('active');
+    }
+  };
+
+  const initMobileTabBar = () => {
+    const tabBar = document.getElementById('pos-tab-bar');
+    if (!tabBar) return;
+    // Show tab bar only on mobile
+    if (window.innerWidth <= 768) {
+      tabBar.style.display = 'flex';
+      // Default: show products tab
+      switchTab('products');
+    } else {
+      tabBar.style.display = 'none';
+      // Desktop: show both panels
+      document.getElementById('pos-products-panel')?.classList.remove('hidden-mobile');
+      document.getElementById('pos-cart-panel')?.classList.remove('hidden-mobile');
+    }
+  };
+
+  // Auto-switch to cart tab when item is added on mobile
+  const addToCartAndSwitch = (productId) => {
+    addToCart(productId);
+    // On mobile, briefly flash the cart badge but stay on products
+    // User can manually switch to cart
   };
 
   // ── Network status ────────────────────────────────────────────────────────────
@@ -833,9 +821,8 @@ const POS = (() => {
   return {
     render, addToCart, updateQuantity, removeFromCart, clearCart,
     filterCategory, onSearch, onSearchKey,
-    setDiscountType, setDiscountValue, selectPayment, updateChange, processPayment,
-    showCashPaymentModal, updateCashModalChange, confirmCashPayment,
-    toggleMobileCart,
-    showCategoryManager, saveCategory, deleteCategory, editCategory, resetCategoryForm,
+    setDiscountType, setDiscountValue, selectPayment, updateChange,
+    handleChargeClick, showCashModal, updateCashModal, setCashAmount, confirmCashPayment,
+    processPayment, switchTab,
   };
 })();
