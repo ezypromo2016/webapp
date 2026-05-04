@@ -130,9 +130,16 @@ const POS = (() => {
               placeholder="Enter reference #">
           </div>
           
-          <button class="charge-btn" id="charge-btn" disabled onclick="POS.handleChargeClick()">
-            <span id="charge-btn-text">Charge ₱0.00</span>
-          </button>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <button class="btn btn-secondary btn-sm" onclick="Receipt.openCashDrawer()" 
+              style="flex:1;" title="Test cash drawer connection">
+              🏪 Open Drawer
+            </button>
+            <button class="charge-btn" id="charge-btn" disabled onclick="POS.handleChargeClick()" 
+              style="flex:2;">
+              <span id="charge-btn-text">Charge ₱0.00</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

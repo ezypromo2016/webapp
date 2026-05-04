@@ -13,6 +13,17 @@ const Receipt = (() => {
       ' ' + d.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
   };
 
+  // USB Printer settings
+  const getPrinterSettings = () => ({
+    baudRate: Storage.get('printer_baud_rate') || 9600,
+    drawerCommand: Storage.get('printer_drawer_command') || [0x1B, 0x70, 0x00, 0x19, 0xFA], // ESC p 0 25 250
+  });
+
+  const setPrinterSettings = (settings) => {
+    if (settings.baudRate) Storage.set('printer_baud_rate', settings.baudRate);
+    if (settings.drawerCommand) Storage.set('printer_drawer_command', settings.drawerCommand);
+  };
+
   /**
    * Build receipt HTML string
    */
@@ -254,7 +265,8 @@ const Receipt = (() => {
     }
   };
 
-  const openCashDrawer = () => {
+  const openCashDrawer = async () => {
+    // Try Android native bridge first
     if (window.AndroidBridge && typeof window.AndroidBridge.openCashDrawer === 'function') {
       window.AndroidBridge.openCashDrawer();
       Toast.show('Opening cash drawer...', 'success');
@@ -268,9 +280,39 @@ const Receipt = (() => {
       return true;
     }
 
-    Toast.show('Cash drawer not available in this browser. Use Android native mode or add hardware bridge.', 'warning');
+    // Try Web Serial API for USB-connected printers (laptop/desktop)
+    if ('serial' in navigator) {
+      try {
+        Toast.show('Connecting to cash drawer...', 'info');
+
+        // Request a port
+        const port = await navigator.serial.requestPort();
+        const settings = getPrinterSettings();
+        await port.open({ baudRate: settings.baudRate });
+
+        // Send drawer kick command
+        const command = new Uint8Array(settings.drawerCommand);
+
+        const writer = port.writable.getWriter();
+        await writer.write(command);
+        await writer.close();
+
+        port.close();
+        Toast.show('Cash drawer opened!', 'success');
+        return true;
+      } catch (err) {
+        console.warn('Web Serial API failed:', err);
+        if (err.name !== 'NotAllowedError') {
+          Toast.show('Failed to open cash drawer. Check USB connection.', 'error');
+        }
+        // Fall through to warning message
+      }
+    }
+
+    // Fallback: show warning
+    Toast.show('Cash drawer not available. Use Android app or connect USB printer.', 'warning');
     return false;
   };
 
-  return { print, exportPDF, buildHTML, openCashDrawer };
+  return { print, exportPDF, buildHTML, openCashDrawer, getPrinterSettings, setPrinterSettings };
 })();
