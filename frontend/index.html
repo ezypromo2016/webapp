@@ -9,6 +9,9 @@
   <meta name="apple-mobile-web-app-title" content="SwiftPOS">
   <meta name="theme-color" content="#0a0a0f">
   <meta name="description" content="SwiftPOS - Modern Point of Sale System">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
 
   <title>CBKPOS</title>
 
@@ -51,21 +54,33 @@
 <div id="sidebar-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:199;" onclick="closeSidebar()"></div>
 
 <!-- JS Modules -->
-<script src="/js/utils/storage.js"></script>
-<script src="/js/utils/api.js"></script>
-<script src="/js/utils/sync.js"></script>
-<script src="/js/utils/receipt.js"></script>
-<script src="/js/modules/auth.js"></script>
-<script src="/js/modules/dashboard.js"></script>
-<script src="/js/modules/pos.js"></script>
-<script src="/js/modules/printing.js"></script>
-<script src="/js/modules/products.js"></script>
-<script src="/js/modules/transactions.js"></script>
-<script src="/js/modules/inventory.js"></script>
-<script src="/js/app.js"></script>
+<script src="/js/utils/storage.js?v=1.0.1"></script>
+<script src="/js/utils/api.js?v=1.0.1"></script>
+<script src="/js/utils/sync.js?v=1.0.1"></script>
+<script src="/js/utils/receipt.js?v=1.0.1"></script>
+<script src="/js/modules/auth.js?v=1.0.1"></script>
+<script src="/js/modules/dashboard.js?v=1.0.1"></script>
+<script src="/js/modules/pos.js?v=1.0.1"></script>
+<script src="/js/modules/printing.js?v=1.0.1"></script>
+<script src="/js/modules/products.js?v=1.0.1"></script>
+<script src="/js/modules/transactions.js?v=1.0.1"></script>
+<script src="/js/modules/inventory.js?v=1.0.1"></script>
+<script src="/js/app.js?v=1.0.1"></script>
 
 <!-- Startup Script -->
 <script>
+  // Cache-busting: Add timestamp to all script sources
+  (function() {
+    const scripts = document.querySelectorAll('script[src*="/js/"]');
+    const timestamp = Date.now();
+    scripts.forEach(script => {
+      const src = script.getAttribute('src');
+      if (src && !src.includes('?')) {
+        script.setAttribute('src', src + '?t=' + timestamp);
+      }
+    });
+  })();
+
   // Initialize the app
   (async () => {
     // Register service worker for PWA and offline support
