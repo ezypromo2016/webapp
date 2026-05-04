@@ -324,4 +324,13 @@ class AndroidBridge(private val activity: MainActivity) {
             Toast.makeText(activity, "Printing... (implement BT printer)", Toast.LENGTH_SHORT).show()
         }
     }
+
+    @JavascriptInterface
+    fun openCashDrawer() {
+        // TODO: Add actual printer/drawer integration for Logicowl OJ-100 here.
+        // Example ESC/POS drawer kick command: 1B 70 00 19 FA
+        activity.runOnUiThread {
+            Toast.makeText(activity, "Opening cash drawer...", Toast.LENGTH_SHORT).show()
+        }
+    }
 }

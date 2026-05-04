@@ -76,10 +76,15 @@ const Transactions = (() => {
     };
 
     try {
+      console.log('[Transactions] Loading transactions online...');
       const res = await API.get('/transactions', params);
+      console.log('[Transactions] ✓ Loaded online transactions:', res.data.length);
       renderTable(res.data, res.pagination);
     } catch (err) {
-      Toast.show('Failed to load transactions', 'error');
+      console.log('[Transactions] ✗ Online transactions failed:', err.message);
+      // For transactions, we can't easily cache filtered results, so show a message
+      Toast.show('⚠ Transaction history not available offline. Connect to internet to view transactions.', 'warning');
+      renderTable([], { page: 1, pages: 1, total: 0 });
     }
   };
 

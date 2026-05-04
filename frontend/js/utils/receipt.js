@@ -254,5 +254,23 @@ const Receipt = (() => {
     }
   };
 
-  return { print, exportPDF, buildHTML };
+  const openCashDrawer = () => {
+    if (window.AndroidBridge && typeof window.AndroidBridge.openCashDrawer === 'function') {
+      window.AndroidBridge.openCashDrawer();
+      Toast.show('Opening cash drawer...', 'success');
+      return true;
+    }
+
+    if (window.AndroidBridge && window.AndroidBridge.openCashDrawer) {
+      // Some WebView JavaScript bridges expose methods differently.
+      window.AndroidBridge.openCashDrawer();
+      Toast.show('Opening cash drawer...', 'success');
+      return true;
+    }
+
+    Toast.show('Cash drawer not available in this browser. Use Android native mode or add hardware bridge.', 'warning');
+    return false;
+  };
+
+  return { print, exportPDF, buildHTML, openCashDrawer };
 })();

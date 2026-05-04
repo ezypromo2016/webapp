@@ -150,22 +150,73 @@ const POS = (() => {
 
   const loadData = async () => {
     try {
+      console.log('[POS] Loading data online...');
       const [productsRes, catsRes] = await Promise.all([
         API.get('/products', { isActive: 'true', limit: 200 }),
         API.get('/categories'),
       ]);
       products = productsRes.data;
       categories = catsRes.data;
+      console.log('[POS] ✓ Loaded online data:', { products: products.length, categories: categories.length });
       renderCategoryTabs();
       renderProducts(products);
     } catch (err) {
-      Toast.show('Failed to load products: ' + err.message, 'error');
-      // Try to render with cached data
-      const cached = Storage.getCache('products');
-      if (cached) { products = cached; renderProducts(products); }
+      console.log('[POS] ✗ Online load failed, trying cached data:', err.message);
+
+      // Try to load from API cache first (more reliable)
+      let cachedProducts = Storage.getCache('api_/products');
+      let cachedCategories = Storage.getCache('api_/categories');
+
+      const unwrap = (value) => value && value.data ? value.data : value;
+
+      // Fallback to manual cache if API cache not available
+      if (!cachedProducts) {
+        cachedProducts = Storage.getCache('products');
+        console.log('[POS] Using manual product cache');
+      }
+      if (!cachedCategories) {
+        cachedCategories = Storage.getCache('categories');
+        console.log('[POS] Using manual category cache');
+      }
+
+      const productData = unwrap(cachedProducts);
+      const categoryData = unwrap(cachedCategories);
+
+      if (productData) {
+        products = productData;
+        console.log('[POS] ✓ Loaded cached products:', products.length);
+      } else {
+        products = [];
+        console.log('[POS] ✗ No cached products available');
+      }
+
+      if (categoryData) {
+        categories = categoryData;
+        console.log('[POS] ✓ Loaded cached categories:', categories.length);
+      } else {
+        categories = [];
+        console.log('[POS] ✗ No cached categories available');
+      }
+
+      renderCategoryTabs();
+      renderProducts(products);
+
+      if (products.length === 0 && categories.length === 0) {
+        Toast.show('⚠ No cached data available. Connect to internet to load products.', 'warning');
+      } else {
+        Toast.show('⚠ Using cached data. Some features may be limited.', 'warning');
+      }
     }
-    // Cache for offline
-    if (products.length > 0) Storage.cache('products', products, 600);
+
+    // Always cache current data for offline use
+    if (products.length > 0) {
+      Storage.cache('products', products, 600);
+      console.log('[POS] Cached products for offline use');
+    }
+    if (categories.length > 0) {
+      Storage.cache('categories', categories, 600);
+      console.log('[POS] Cached categories for offline use');
+    }
   };
 
   // ── Category Tabs ────────────────────────────────────────────────────────────
@@ -409,6 +460,7 @@ ${discountAmount > 0 ? `<div class="totals-row discount-row"><span>Discount</spa
   const handleChargeClick = () => {
     if (cart.length === 0 || isProcessing) return;
     if (paymentMethod === 'cash') {
+      Receipt.openCashDrawer();
       showCashModal();
     } else {
       processPayment();
