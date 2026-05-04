@@ -144,15 +144,78 @@ const closeSidebar = () => {
 // ── App Router ────────────────────────────────────────────────────────────────
 const App = (() => {
   const routes = {
-    login: () => { document.getElementById('app').innerHTML = Auth.renderLoginScreen(); },
-    register: () => { document.getElementById('app').innerHTML = Auth.renderRegisterScreen(); },
-    dashboard: () => Dashboard.render(),
-    pos: () => POS.render(),
-    products: () => Products.render(),
-    printing: () => Printing.render(),
-    transactions: (params) => Transactions.render(params),
-    inventory: () => Inventory.render(),
-    settings: () => Settings.render(),
+    login: () => {
+      if (typeof Auth === 'undefined') {
+        console.error('Auth module not loaded');
+        Toast.show('Auth module not loaded. Please refresh the page.', 'error');
+        return;
+      }
+      document.getElementById('app').innerHTML = Auth.renderLoginScreen();
+    },
+    register: () => {
+      if (typeof Auth === 'undefined') {
+        console.error('Auth module not loaded');
+        Toast.show('Auth module not loaded. Please refresh the page.', 'error');
+        return;
+      }
+      document.getElementById('app').innerHTML = Auth.renderRegisterScreen();
+    },
+    dashboard: () => {
+      if (typeof Dashboard === 'undefined') {
+        console.error('Dashboard module not loaded');
+        Toast.show('Dashboard module not loaded. Please refresh the page.', 'error');
+        return;
+      }
+      Dashboard.render();
+    },
+    pos: () => {
+      if (typeof POS === 'undefined') {
+        console.error('POS module not loaded');
+        Toast.show('POS module not loaded. Please refresh the page.', 'error');
+        return;
+      }
+      POS.render();
+    },
+    products: () => {
+      if (typeof Products === 'undefined') {
+        console.error('Products module not loaded');
+        Toast.show('Products module not loaded. Please refresh the page.', 'error');
+        return;
+      }
+      Products.render();
+    },
+    printing: () => {
+      if (typeof Printing === 'undefined') {
+        console.error('Printing module not loaded');
+        Toast.show('Printing module not loaded. Please refresh the page.', 'error');
+        return;
+      }
+      Printing.render();
+    },
+    transactions: (params) => {
+      if (typeof Transactions === 'undefined') {
+        console.error('Transactions module not loaded');
+        Toast.show('Transactions module not loaded. Please refresh the page.', 'error');
+        return;
+      }
+      Transactions.render(params);
+    },
+    inventory: () => {
+      if (typeof Inventory === 'undefined') {
+        console.error('Inventory module not loaded');
+        Toast.show('Inventory module not loaded. Please refresh the page.', 'error');
+        return;
+      }
+      Inventory.render();
+    },
+    settings: () => {
+      if (typeof Settings === 'undefined') {
+        console.error('Settings module not loaded');
+        Toast.show('Settings module not loaded. Please refresh the page.', 'error');
+        return;
+      }
+      Settings.render();
+    },
   };
 
   const navigate = async (page, params = null) => {
@@ -566,6 +629,41 @@ const initNetworkMonitor = () => {
 };
 
 // ── App Bootstrap ─────────────────────────────────────────────────────────────
+const waitForModules = (timeout = 5000) => {
+  return new Promise((resolve, reject) => {
+    const requiredModules = ['Auth', 'Dashboard', 'POS', 'Products', 'Printing', 'Transactions', 'Inventory'];
+    const checkModules = () => {
+      const loadedModules = requiredModules.filter(moduleName => typeof window[moduleName] !== 'undefined');
+      if (loadedModules.length === requiredModules.length) {
+        console.log('[App] All modules loaded:', loadedModules);
+        resolve();
+      } else {
+        const missing = requiredModules.filter(moduleName => typeof window[moduleName] === 'undefined');
+        console.log('[App] Waiting for modules:', missing);
+      }
+    };
+
+    // Check immediately
+    checkModules();
+
+    // Set up interval to check periodically
+    const interval = setInterval(() => {
+      const allLoaded = requiredModules.every(moduleName => typeof window[moduleName] !== 'undefined');
+      if (allLoaded) {
+        clearInterval(interval);
+        resolve();
+      }
+    }, 100);
+
+    // Timeout after specified time
+    setTimeout(() => {
+      clearInterval(interval);
+      const missing = requiredModules.filter(moduleName => typeof window[moduleName] === 'undefined');
+      reject(new Error(`Modules not loaded within ${timeout}ms: ${missing.join(', ')}`));
+    }, timeout);
+  });
+};
+
 const bootApp = async () => {
   const loadingScreen = document.getElementById('loading-screen');
   const appEl = document.getElementById('app');
@@ -574,6 +672,10 @@ const bootApp = async () => {
     // Register PWA
     registerServiceWorker();
     initNetworkMonitor();
+
+    // Wait for all modules to load
+    console.log('[App] Waiting for modules to load...');
+    await waitForModules();
 
     // Try to restore session
     const hasSession = Auth.loadFromStorage();
@@ -599,7 +701,30 @@ const bootApp = async () => {
     console.error('Boot error:', err);
     loadingScreen.style.display = 'none';
     appEl.style.display = 'flex';
-    appEl.innerHTML = Auth.renderLoginScreen();
+
+    if (err.message.includes('Modules not loaded')) {
+      // Module loading failed - show error message
+      appEl.innerHTML = `
+<div class="auth-screen page">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="auth-logo-icon">⚠️</div>
+      <h1 class="auth-title">Loading Error</h1>
+      <p class="auth-subtitle">Some app modules failed to load</p>
+    </div>
+    <div style="text-align:center;padding:20px;">
+      <p style="color:#ef4444;margin-bottom:20px;">${err.message}</p>
+      <button class="btn btn-primary" onclick="window.location.reload()">Reload Page</button>
+      <p style="margin-top:16px;font-size:0.8rem;color:#666;">
+        Try clearing your browser cache or using an incognito window.
+      </p>
+    </div>
+  </div>
+</div>`;
+    } else {
+      // Other error - show login screen
+      appEl.innerHTML = Auth.renderLoginScreen();
+    }
   }
 };
 
