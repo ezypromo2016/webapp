@@ -15,7 +15,7 @@ const POS = (() => {
   let isProcessing = false;
   let searchTimeout = null;
 
-  const TAX_RATE = 0.12;
+  const TAX_RATE = 0.00;
 
   const formatCurrency = (n) =>
     '₱' + parseFloat(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
