@@ -1,21 +1,31 @@
 /**
  * Transaction Controller
  * Create sales, void, refund, history
- * Automatically deducts stock on sale
+ * NOTE: No mongoose sessions - compatible with single MongoDB instances
+ * (Railway free tier does not support replica sets)
  */
 
-const mongoose = require('mongoose');
 const Transaction = require('../models/Transaction');
 const Product = require('../models/Product');
+
+/**
+ * Generate unique transaction number without sessions
+ */
+const generateTransactionNumber = async () => {
+  const today = new Date();
+  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const count = await Transaction.countDocuments({ createdAt: { $gte: startOfDay } });
+  const sequence = String(count + 1).padStart(4, '0');
+  return `TXN-${dateStr}-${sequence}`;
+};
 
 /**
  * POST /api/transactions
  * Create a new transaction (complete a sale)
  */
 exports.createTransaction = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
     const {
       items, discountType, discountValue, paymentMethod,
@@ -27,43 +37,46 @@ exports.createTransaction = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No items in transaction.' });
     }
 
-    // ── Validate and build item records ───────────────────────────────────────
-    const processedItems = [];
-    let subtotal = 0;
-
+    // ── Validate ALL products first before making any changes ─────────────────
+    const productDocs = [];
     for (const item of items) {
-      const product = await Product.findById(item.product).session(session);
+      const product = await Product.findById(item.product);
 
       if (!product || !product.isActive) {
-        await session.abortTransaction();
         return res.status(400).json({
           success: false,
-          message: `Product ${item.product} not found or inactive.`,
+          message: `Product not found or inactive.`,
         });
       }
 
       if (product.stock < item.quantity) {
-        await session.abortTransaction();
         return res.status(400).json({
           success: false,
           message: `Insufficient stock for "${product.name}". Available: ${product.stock}`,
         });
       }
 
-      // Calculate item pricing
+      productDocs.push({ product, requestedQty: item.quantity, item });
+    }
+
+    // ── Build item records ────────────────────────────────────────────────────
+    const processedItems = [];
+    let subtotal = 0;
+
+    for (const { product, requestedQty, item } of productDocs) {
       const itemTaxRate = product.isTaxable
         ? (product.taxRate ?? parseFloat(transactionTaxRate ?? process.env.TAX_RATE ?? 0))
         : 0;
 
-      const itemSubtotal = product.price * item.quantity;
+      const itemSubtotal = product.price * requestedQty;
 
-      // Apply item-level discount
       let itemDiscountAmount = 0;
       if (item.discount && item.discount.value > 0) {
         itemDiscountAmount = item.discount.type === 'percentage'
           ? itemSubtotal * (item.discount.value / 100)
           : item.discount.value;
       }
+
       const discountedSubtotal = itemSubtotal - itemDiscountAmount;
       const itemTax = discountedSubtotal * itemTaxRate;
       const itemTotal = discountedSubtotal + itemTax;
@@ -74,7 +87,7 @@ exports.createTransaction = async (req, res) => {
         productSku: product.sku,
         productBarcode: product.barcode,
         unitPrice: product.price,
-        quantity: item.quantity,
+        quantity: requestedQty,
         discount: item.discount || { type: 'fixed', value: 0 },
         taxRate: itemTaxRate,
         subtotal: discountedSubtotal,
@@ -83,10 +96,14 @@ exports.createTransaction = async (req, res) => {
       });
 
       subtotal += discountedSubtotal;
+    }
 
-      // Deduct stock
-      product.stock -= item.quantity;
-      await product.save({ session });
+    // ── Deduct stock for all products ─────────────────────────────────────────
+    for (const { product, requestedQty } of productDocs) {
+      await Product.findByIdAndUpdate(
+        product._id,
+        { $inc: { stock: -requestedQty } }
+      );
     }
 
     // ── Calculate transaction totals ──────────────────────────────────────────
@@ -97,16 +114,16 @@ exports.createTransaction = async (req, res) => {
         : discountValue;
     }
 
-    const taxableAmount = subtotal - discountAmount;
     const taxRate = parseFloat(transactionTaxRate ?? process.env.TAX_RATE ?? 0);
     const taxAmount = processedItems.reduce((sum, i) => sum + i.tax, 0);
     const total = subtotal - discountAmount + taxAmount;
     const change = paymentMethod === 'cash' ? (amountTendered || 0) - total : 0;
 
-    // ── Generate unique transaction number ────────────────────────────────────
-    const transactionNumber = await Transaction.generateTransactionNumber();
+    // ── Generate transaction number ───────────────────────────────────────────
+    const transactionNumber = await generateTransactionNumber();
 
-    const transaction = await Transaction.create([{
+    // ── Save transaction ──────────────────────────────────────────────────────
+    const transaction = await Transaction.create({
       transactionNumber,
       cashier: req.user._id,
       cashierName: req.user.name,
@@ -128,12 +145,9 @@ exports.createTransaction = async (req, res) => {
       isOffline: isOffline || false,
       offlineId,
       status: 'completed',
-    }], { session });
+    });
 
-    await session.commitTransaction();
-
-    // Populate for response
-    const populated = await Transaction.findById(transaction[0]._id)
+    const populated = await Transaction.findById(transaction._id)
       .populate('cashier', 'name email');
 
     res.status(201).json({
@@ -142,11 +156,8 @@ exports.createTransaction = async (req, res) => {
       message: 'Transaction completed successfully.',
     });
   } catch (err) {
-    await session.abortTransaction();
     console.error('Create transaction error:', err);
     res.status(500).json({ success: false, message: err.message || 'Transaction failed.' });
-  } finally {
-    session.endSession();
   }
 };
 
@@ -232,30 +243,29 @@ exports.getTransaction = async (req, res) => {
 
 /**
  * PATCH /api/transactions/:id/void
- * Void a transaction and restore stock
+ * Void a transaction and restore stock (no sessions)
  */
 exports.voidTransaction = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
     const { reason } = req.body;
-    const transaction = await Transaction.findById(req.params.id).session(session);
+    const transaction = await Transaction.findById(req.params.id);
 
     if (!transaction) {
       return res.status(404).json({ success: false, message: 'Transaction not found.' });
     }
 
     if (transaction.status !== 'completed') {
-      return res.status(400).json({ success: false, message: 'Only completed transactions can be voided.' });
+      return res.status(400).json({
+        success: false,
+        message: 'Only completed transactions can be voided.',
+      });
     }
 
     // Restore stock for each item
     for (const item of transaction.items) {
       await Product.findByIdAndUpdate(
         item.product,
-        { $inc: { stock: item.quantity } },
-        { session }
+        { $inc: { stock: item.quantity } }
       );
     }
 
@@ -263,15 +273,16 @@ exports.voidTransaction = async (req, res) => {
     transaction.voidReason = reason;
     transaction.voidedAt = new Date();
     transaction.voidedBy = req.user._id;
-    await transaction.save({ session });
+    await transaction.save();
 
-    await session.commitTransaction();
-    res.json({ success: true, data: transaction, message: 'Transaction voided. Stock restored.' });
+    res.json({
+      success: true,
+      data: transaction,
+      message: 'Transaction voided. Stock restored.',
+    });
   } catch (err) {
-    await session.abortTransaction();
+    console.error('Void transaction error:', err);
     res.status(500).json({ success: false, message: 'Failed to void transaction.' });
-  } finally {
-    session.endSession();
   }
 };
 
