@@ -79,7 +79,7 @@ const API = (() => {
       if (err instanceof ApiError) throw err;
 
       // Network error = offline
-      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+      if (err instanceof TypeError || err.name === 'TypeError' || /failed to fetch/i.test(err.message || '')) {
         window.dispatchEvent(new CustomEvent('pos:offline'));
         
         // Try to return cached data for GET requests
