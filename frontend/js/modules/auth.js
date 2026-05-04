@@ -91,17 +91,23 @@ const Auth = (() => {
       return null;
     };
 
-    // Always try offline login first, regardless of navigator.onLine status
+    // Always try offline login first
     const offlineUser = tryOfflineLogin();
     if (offlineUser) return offlineUser;
 
-    // If offline login didn't work, try online login
+    // Check if we're offline and offline login failed - show error immediately
+    if (!navigator.onLine) {
+      throw new ApiError('Invalid credentials or no internet connection', 401, null, true);
+    }
+
+    // If online, try the API
     try {
       const res = await API.post('/auth/login', { email, password });
       setSession(res.token, res.user);
       return res.user;
     } catch (err) {
-      // If online login fails due to network issues, show offline message
+      // Re-throw the error from API (which includes proper status codes)
+      if (err instanceof ApiError) throw err;
       throw new ApiError('No internet connection. Working offline.', 0, null, true);
     }
   };
@@ -226,12 +232,14 @@ const Auth = (() => {
     btn.innerHTML = '<div class="spinner spinner-sm"></div> Signing in...';
 
     try {
+      console.log('[Login] Attempting login:', { email, isOnline: navigator.onLine });
       await login(email, password);
       storeCredentials(email, password);
       window.App.navigate('dashboard');
       Toast.show(`Welcome back, ${currentUser.name}!`, 'success');
     } catch (err) {
-      errEl.textContent = err.message;
+      console.error('[Login] Error:', err.message, err);
+      errEl.textContent = err.message || 'Login failed';
       errEl.classList.remove('hidden');
       btn.disabled = false;
       btn.innerHTML = 'Sign In';
