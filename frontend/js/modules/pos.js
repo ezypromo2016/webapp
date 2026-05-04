@@ -22,6 +22,13 @@ const POS = (() => {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   const render = async () => {
+    // Ensure dependencies are loaded
+    if (typeof Receipt === 'undefined' || typeof Receipt.openCashDrawer !== 'function') {
+      console.warn('[POS] Receipt module not loaded, retrying in 100ms...');
+      setTimeout(() => render(), 100);
+      return;
+    }
+
     const user = Auth.getUser();
     document.getElementById('app').innerHTML = `
 <div class="main-layout">

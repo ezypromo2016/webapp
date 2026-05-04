@@ -75,8 +75,9 @@
     const timestamp = Date.now();
     scripts.forEach(script => {
       const src = script.getAttribute('src');
-      if (src && !src.includes('?')) {
-        script.setAttribute('src', src + '?t=' + timestamp);
+      if (src) {
+        const separator = src.includes('?') ? '&' : '?';
+        script.setAttribute('src', src + separator + 't=' + timestamp);
       }
     });
   })();
