@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SwiftPOS Android Theme
+  File: app/src/main/res/values/themes.xml
+-->
+<resources>
+    <!-- Base application theme -->
+    <style name="Theme.SwiftPOS" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Status bar color matches app dark theme -->
+        <item name="android:statusBarColor">#0a0a0f</item>
+        <item name="android:navigationBarColor">#0a0a0f</item>
+        <item name="android:windowBackground">#0a0a0f</item>
+        <item name="colorPrimary">#6366f1</item>
+        <item name="colorPrimaryDark">#4f46e5</item>
+        <item name="colorAccent">#6366f1</item>
+        <!-- Make status bar icons light (for dark background) -->
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Splash screen style -->
+    <style name="Theme.SwiftPOS.SplashScreen" parent="Theme.SwiftPOS">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+</resources>
