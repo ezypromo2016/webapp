@@ -69,6 +69,11 @@ const API = (() => {
         );
       }
 
+      // Cache GET requests for offline fallback
+      if (method === 'GET' && response.ok) {
+        Storage.cache(`api_${endpoint}`, json, 3600); // Cache for 1 hour
+      }
+
       return json;
     } catch (err) {
       if (err instanceof ApiError) throw err;
@@ -76,6 +81,16 @@ const API = (() => {
       // Network error = offline
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
         window.dispatchEvent(new CustomEvent('pos:offline'));
+        
+        // Try to return cached data for GET requests
+        if (method === 'GET') {
+          const cached = Storage.getCache(`api_${endpoint}`);
+          if (cached) {
+            console.log(`[API] Using cached data for ${endpoint}`);
+            return cached;
+          }
+        }
+        
         throw new ApiError('No internet connection. Working offline.', 0, null, true);
       }
 
@@ -90,6 +105,7 @@ const API = (() => {
     patch: (endpoint, data, opts) => request('PATCH', endpoint, data, opts),
     delete: (endpoint, opts) => request('DELETE', endpoint, null, opts),
     BASE_URL,
+    isOnline: () => navigator.onLine,
   };
 })();
 
