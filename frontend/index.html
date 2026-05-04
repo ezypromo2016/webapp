@@ -64,5 +64,48 @@
 <script src="/js/modules/inventory.js"></script>
 <script src="/js/app.js"></script>
 
+<!-- Startup Script -->
+<script>
+  // Initialize the app
+  (async () => {
+    // Register service worker for PWA and offline support
+    if ('serviceWorker' in navigator) {
+      try {
+        await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        console.log('[SW] Service worker registered');
+      } catch (err) {
+        console.warn('[SW] Registration failed:', err);
+      }
+    }
+
+    // Load user from storage if available
+    const isLoggedIn = Auth.loadFromStorage();
+    
+    // Show the app
+    document.getElementById('loading-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+
+    // Navigate to dashboard or login
+    if (isLoggedIn) {
+      App.navigate('dashboard');
+    } else {
+      App.navigate('login');
+    }
+
+    // Auto-sync pending transactions every 30 seconds if online
+    setInterval(async () => {
+      if (navigator.onLine && Auth.isLoggedIn()) {
+        const pending = await OfflineDB.getPending();
+        if (pending.length > 0) {
+          console.log('[Sync] Auto-syncing pending transactions...');
+          await Sync.sync();
+        }
+      }
+    }, 30000);
+
+    console.log('[POS] App initialized');
+  })();
+</script>
+
 </body>
 </html>
