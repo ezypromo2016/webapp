@@ -18,7 +18,8 @@ const Auth = (() => {
   };
 
   const clearSession = () => {
-    Storage.clear();
+    Storage.remove('token');
+    Storage.remove('user');
     currentUser = null;
   };
 
@@ -51,10 +52,11 @@ const Auth = (() => {
       const cachedToken = Storage.get('token');
       const cachedCredentials = Storage.get('login_credentials');
 
-      if (cachedUser && cachedToken && cachedCredentials &&
+      if (cachedUser && cachedCredentials &&
           cachedCredentials.email === email &&
           cachedCredentials.password === btoa(password)) {
-        setSession(cachedToken, cachedUser);
+        const tokenToUse = cachedToken || `offline_${Date.now()}`;
+        setSession(tokenToUse, cachedUser);
         Toast.show('Offline mode: Using cached credentials', 'warning');
         return cachedUser;
       }
