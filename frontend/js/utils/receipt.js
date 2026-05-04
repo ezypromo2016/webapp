@@ -24,6 +24,15 @@ const Receipt = (() => {
     if (settings.drawerCommand) Storage.set('printer_drawer_command', settings.drawerCommand);
   };
 
+  // Alternative drawer commands for different cash drawer models
+  const getAlternativeDrawerCommands = () => [
+    { name: 'Standard ESC/POS (25ms on, 250ms off)', command: [0x1B, 0x70, 0x00, 0x19, 0xFA] },
+    { name: 'Logicowl OJ-100 (50ms on, 100ms off)', command: [0x1B, 0x70, 0x00, 0x32, 0x64] },
+    { name: 'Generic Drawer Kick 1', command: [0x1B, 0x70, 0x00, 0x32, 0xFA] },
+    { name: 'Generic Drawer Kick 2', command: [0x1B, 0x70, 0x01, 0x19, 0xFA] },
+    { name: 'Epson Compatible', command: [0x1B, 0x40, 0x1B, 0x70, 0x00, 0x19, 0xFA] },
+  ];
+
   /**
    * Build receipt HTML string
    */
@@ -283,36 +292,75 @@ const Receipt = (() => {
     // Try Web Serial API for USB-connected printers (laptop/desktop)
     if ('serial' in navigator) {
       try {
+        console.log('[Cash Drawer] Attempting Web Serial API connection...');
         Toast.show('Connecting to cash drawer...', 'info');
 
         // Request a port
         const port = await navigator.serial.requestPort();
+        console.log('[Cash Drawer] Port selected, opening connection...');
+
         const settings = getPrinterSettings();
+        console.log('[Cash Drawer] Using settings:', settings);
+
         await port.open({ baudRate: settings.baudRate });
+        console.log('[Cash Drawer] Port opened successfully');
 
-        // Send drawer kick command
-        const command = new Uint8Array(settings.drawerCommand);
+        // Try the configured command first
+        let success = false;
+        const commands = [settings.drawerCommand, ...getAlternativeDrawerCommands().map(c => c.command)];
 
-        const writer = port.writable.getWriter();
-        await writer.write(command);
-        await writer.close();
+        for (let i = 0; i < commands.length && !success; i++) {
+          try {
+            const command = new Uint8Array(commands[i]);
+            console.log(`[Cash Drawer] Trying command ${i + 1}:`, Array.from(command).map(b => b.toString(16).toUpperCase()));
+
+            const writer = port.writable.getWriter();
+            await writer.write(command);
+            await writer.close();
+
+            // Wait a bit before trying next command
+            if (i < commands.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+
+            success = true;
+            console.log(`[Cash Drawer] Command ${i + 1} sent successfully`);
+          } catch (cmdErr) {
+            console.warn(`[Cash Drawer] Command ${i + 1} failed:`, cmdErr);
+          }
+        }
 
         port.close();
-        Toast.show('Cash drawer opened!', 'success');
-        return true;
-      } catch (err) {
-        console.warn('Web Serial API failed:', err);
-        if (err.name !== 'NotAllowedError') {
-          Toast.show('Failed to open cash drawer. Check USB connection.', 'error');
+
+        if (success) {
+          Toast.show('Cash drawer opened!', 'success');
+          return true;
+        } else {
+          throw new Error('All drawer commands failed');
         }
-        // Fall through to warning message
+      } catch (err) {
+        console.error('[Cash Drawer] Web Serial API error:', err);
+        console.error('[Cash Drawer] Error name:', err.name);
+        console.error('[Cash Drawer] Error message:', err.message);
+
+        if (err.name === 'NotAllowedError') {
+          Toast.show('USB permission denied. Please allow access to the cash drawer.', 'warning');
+        } else if (err.name === 'NotFoundError') {
+          Toast.show('No cash drawer found. Please connect your Logicowl OJ-100 and try again.', 'warning');
+        } else if (err.name === 'InvalidStateError') {
+          Toast.show('Cash drawer is already in use by another application.', 'warning');
+        } else {
+          Toast.show(`Failed to open cash drawer: ${err.message}`, 'error');
+        }
+        return false;
       }
     }
 
     // Fallback: show warning
+    console.warn('[Cash Drawer] No cash drawer interface available');
     Toast.show('Cash drawer not available. Use Android app or connect USB printer.', 'warning');
     return false;
   };
 
-  return { print, exportPDF, buildHTML, openCashDrawer, getPrinterSettings, setPrinterSettings };
+  return { print, exportPDF, buildHTML, openCashDrawer, getPrinterSettings, setPrinterSettings, getAlternativeDrawerCommands };
 })();
