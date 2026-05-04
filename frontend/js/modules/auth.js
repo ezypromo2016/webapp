@@ -47,6 +47,11 @@ const Auth = (() => {
   };
 
   const getOfflineDemoUser = (email, password) => {
+    const normalizedEmail = (email || '').toLowerCase().trim();
+    const normalizedPassword = (password || '').trim();
+
+    console.log('[Demo Auth] Checking:', { normalizedEmail, normalizedPassword });
+
     const demoUsers = [
       {
         email: 'admin@pos.com',
@@ -62,11 +67,27 @@ const Auth = (() => {
       },
     ];
 
-    return demoUsers.find(u => u.email === email && u.password === password) || null;
+    for (let demoUser of demoUsers) {
+      const demoEmail = (demoUser.email || '').toLowerCase().trim();
+      const demoPassword = (demoUser.password || '').trim();
+
+      console.log('[Demo Auth] Comparing:', { demoEmail, demoPassword, match: normalizedEmail === demoEmail && normalizedPassword === demoPassword });
+
+      if (normalizedEmail === demoEmail && normalizedPassword === demoPassword) {
+        console.log('[Demo Auth] MATCHED:', demoUser.email);
+        return demoUser;
+      }
+    }
+
+    console.log('[Demo Auth] NO MATCH found');
+    return null;
   };
 
   const login = async (email, password) => {
+    console.log('[Login] Start:', { email, isOnline: navigator.onLine });
+
     const tryOfflineLogin = () => {
+      console.log('[Offline Login] Checking cached credentials...');
       const cachedUser = Storage.get('user');
       const cachedToken = Storage.get('token');
       const cachedCredentials = Storage.get('login_credentials');
@@ -74,35 +95,51 @@ const Auth = (() => {
       if (cachedUser && cachedCredentials &&
           cachedCredentials.email === email &&
           cachedCredentials.password === btoa(password)) {
+        console.log('[Offline Login] ✓ Using cached credentials');
         const tokenToUse = cachedToken || `offline_${Date.now()}`;
         setSession(tokenToUse, cachedUser);
         Toast.show('Offline mode: Using cached credentials', 'warning');
         return cachedUser;
       }
 
+      console.log('[Offline Login] Checking demo users...');
       const demoUser = getOfflineDemoUser(email, password);
       if (demoUser) {
+        console.log('[Offline Login] ✓ Demo user matched');
         const offlineToken = `offline_demo_${Date.now()}`;
         setSession(offlineToken, demoUser);
-        Toast.show('Offline mode: Demo credentials accepted', 'warning');
+        Toast.show('✓ Offline mode: Demo credentials accepted', 'warning');
         return demoUser;
       }
 
+      console.log('[Offline Login] ✗ No match found');
       return null;
     };
 
-    // Always try offline login first, regardless of navigator.onLine status
+    // Always try offline login first
     const offlineUser = tryOfflineLogin();
-    if (offlineUser) return offlineUser;
+    if (offlineUser) {
+      console.log('[Login] ✓ Offline login successful');
+      return offlineUser;
+    }
 
-    // If offline login didn't work, try online login
+    // Offline login failed - check network status
+    if (!navigator.onLine) {
+      console.log('[Login] ✗ Offline and no valid credentials');
+      throw new ApiError('❌ Invalid email or password', 401, null, true);
+    }
+
+    // Try online login
+    console.log('[Login] Online - attempting API login');
     try {
       const res = await API.post('/auth/login', { email, password });
       setSession(res.token, res.user);
+      console.log('[Login] ✓ API login successful');
       return res.user;
     } catch (err) {
-      // If online login fails due to network issues, show offline message
-      throw new ApiError('No internet connection. Working offline.', 0, null, true);
+      console.error('[Login] ✗ API error:', err.message);
+      if (err instanceof ApiError) throw err;
+      throw new ApiError('❌ Connection failed. Try offline.', 0, null, true);
     }
   };
   
@@ -125,6 +162,15 @@ const Auth = (() => {
 
   // ── Login Screen HTML ──────────────────────────────────────────────────────
   const renderLoginScreen = () => {
+    const isOnline = navigator.onLine;
+    const debugPanel = `
+    <div style="margin-top:24px;padding:12px;background:${isOnline ? '#e8f5e9' : '#fff3e0'};border-radius:8px;border:1px solid ${isOnline ? '#4CAF50' : '#FF9800'};">
+      <p style="margin:0;font-size:0.75rem;color:#666;font-weight:600;">🔍 DEBUG INFO:</p>
+      <p style="margin:4px 0;font-size:0.75rem;color:#333;font-family:monospace;">Network: <strong>${isOnline ? '🟢 ONLINE' : '🔴 OFFLINE'}</strong></p>
+      <p style="margin:4px 0;font-size:0.75rem;color:#333;font-family:monospace;">Demo: admin@pos.com / Admin@123</p>
+      <p style="margin:4px 0;font-size:0.75rem;color:#333;font-family:monospace;">Demo: cashier@pos.com / Cashier@123</p>
+    </div>`;
+
     return `
 <div class="auth-screen page">
   <div class="auth-card">
@@ -170,6 +216,8 @@ const Auth = (() => {
       <p class="text-mono text-sm">admin@pos.com / Admin@123</p>
       <p class="text-mono text-sm">cashier@pos.com / Cashier@123</p>
     </div>
+    
+    ${debugPanel}
   </div>
 </div>`;
   };
@@ -226,12 +274,14 @@ const Auth = (() => {
     btn.innerHTML = '<div class="spinner spinner-sm"></div> Signing in...';
 
     try {
+      console.log('[Login] Attempting login:', { email, isOnline: navigator.onLine });
       await login(email, password);
       storeCredentials(email, password);
       window.App.navigate('dashboard');
       Toast.show(`Welcome back, ${currentUser.name}!`, 'success');
     } catch (err) {
-      errEl.textContent = err.message;
+      console.error('[Login] Error:', err.message, err);
+      errEl.textContent = err.message || 'Login failed';
       errEl.classList.remove('hidden');
       btn.disabled = false;
       btn.innerHTML = 'Sign In';
