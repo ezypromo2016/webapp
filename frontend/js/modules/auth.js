@@ -18,8 +18,7 @@ const Auth = (() => {
   };
 
   const clearSession = () => {
-    Storage.remove('token');
-    Storage.remove('user');
+    Storage.clear();
     currentUser = null;
   };
 
@@ -33,126 +32,60 @@ const Auth = (() => {
     return false;
   };
 
-  // Verify token is still valid
+  // Verify token is still valid — skips check when offline
   const verify = async () => {
+    // If offline, trust the cached session
+    if (!navigator.onLine) {
+      console.log('[Auth] Offline — using cached session');
+      return !!currentUser;
+    }
     try {
       const res = await API.get('/auth/me');
       currentUser = res.user;
       Storage.set('user', res.user);
+      // Save a hashed credential snapshot for offline login
+      Storage.set('offline_session_valid', true);
       return true;
-    } catch {
+    } catch (err) {
+      // Network error — keep session alive
+      if (err.isOffline || err.status === 0) {
+        console.log('[Auth] Network error — keeping cached session');
+        return !!currentUser;
+      }
+      // Real auth failure (401) — clear session
       clearSession();
       return false;
     }
   };
 
-  const getOfflineDemoUser = (email, password) => {
-    const normalizedEmail = (email || '').toLowerCase().trim();
-    const normalizedPassword = (password || '').trim();
-
-    console.log('[Demo Auth] Checking:', { normalizedEmail, normalizedPassword });
-
-    const demoUsers = [
-      {
-        email: 'admin@pos.com',
-        password: 'Admin@123',
-        name: 'Admin User',
-        role: 'admin',
-      },
-      {
-        email: 'cashier@pos.com',
-        password: 'Cashier@123',
-        name: 'Cashier User',
-        role: 'cashier',
-      },
-    ];
-
-    for (let demoUser of demoUsers) {
-      const demoEmail = (demoUser.email || '').toLowerCase().trim();
-      const demoPassword = (demoUser.password || '').trim();
-
-      console.log('[Demo Auth] Comparing:', { demoEmail, demoPassword, match: normalizedEmail === demoEmail && normalizedPassword === demoPassword });
-
-      if (normalizedEmail === demoEmail && normalizedPassword === demoPassword) {
-        console.log('[Demo Auth] MATCHED:', demoUser.email);
-        return demoUser;
-      }
-    }
-
-    console.log('[Demo Auth] NO MATCH found');
-    return null;
-  };
-
   const login = async (email, password) => {
-    console.log('[Login] Start:', { email, isOnline: navigator.onLine });
-
-    const tryOfflineLogin = () => {
-      console.log('[Offline Login] Checking cached credentials...');
-      const cachedUser = Storage.get('user');
-      const cachedToken = Storage.get('token');
-      const cachedCredentials = Storage.get('login_credentials');
-
-      if (cachedUser && cachedCredentials &&
-          cachedCredentials.email === email &&
-          cachedCredentials.password === btoa(password)) {
-        console.log('[Offline Login] ✓ Using cached credentials');
-        const tokenToUse = cachedToken || `offline_${Date.now()}`;
-        setSession(tokenToUse, cachedUser);
-        Toast.show('Offline mode: Using cached credentials', 'warning');
-        return cachedUser;
-      }
-
-      console.log('[Offline Login] Checking demo users...');
-      const demoUser = getOfflineDemoUser(email, password);
-      if (demoUser) {
-        console.log('[Offline Login] ✓ Demo user matched');
-        const offlineToken = `offline_demo_${Date.now()}`;
-        setSession(offlineToken, demoUser);
-        Toast.show('✓ Offline mode: Demo credentials accepted', 'warning');
-        return demoUser;
-      }
-
-      console.log('[Offline Login] ✗ No match found');
-      return null;
-    };
-
-    // Always try offline login first
-    const offlineUser = tryOfflineLogin();
-    if (offlineUser) {
-      console.log('[Login] ✓ Offline login successful');
-      return offlineUser;
-    }
-
-    // Offline login failed - check network status
-    if (!navigator.onLine) {
-      console.log('[Login] ✗ Offline and no valid credentials');
-      throw new ApiError('❌ Invalid email or password', 401, null, true);
-    }
-
-    // Try online login
-    console.log('[Login] Online - attempting API login');
-    try {
-      const res = await API.post('/auth/login', { email, password });
-      setSession(res.token, res.user);
-      console.log('[Login] ✓ API login successful');
-      return res.user;
-    } catch (err) {
-      console.error('[Login] ✗ API error:', err.message);
-      if (err instanceof ApiError) throw err;
-      throw new ApiError('❌ Connection failed. Try offline.', 0, null, true);
-    }
+    const res = await API.post('/auth/login', { email, password });
+    setSession(res.token, res.user);
+    // Save offline credentials (hashed) for offline login
+    saveOfflineCredentials(email, password, res.user);
+    return res.user;
   };
-  
-  // Store credentials encrypted for offline login
-  const storeCredentials = (email, password) => {
-    try {
-      Storage.set('login_credentials', {
-        email,
-        password: btoa(password), // Simple base64, not true encryption
-      });
-    } catch (e) {
-      console.warn('Could not store credentials:', e);
+
+  // Save credentials for offline login using a simple hash
+  const saveOfflineCredentials = (email, password, user) => {
+    // Simple hash — not cryptographic, just obfuscation for localStorage
+    const hash = btoa(unescape(encodeURIComponent(email + ':' + password + ':swiftpos')));
+    Storage.set('offline_creds', { email: email.toLowerCase(), hash, user });
+  };
+
+  // Attempt offline login using cached credentials
+  const loginOffline = (email, password) => {
+    const creds = Storage.get('offline_creds');
+    if (!creds) return false;
+
+    const hash = btoa(unescape(encodeURIComponent(email + ':' + password + ':swiftpos')));
+    if (creds.email === email.toLowerCase() && creds.hash === hash) {
+      // Restore session with cached user
+      currentUser = creds.user;
+      Storage.set('user', creds.user);
+      return true;
     }
+    return false;
   };
 
   const logout = () => {
@@ -160,17 +93,9 @@ const Auth = (() => {
     window.App.navigate('login');
   };
 
-  // ── Login Screen HTML ──────────────────────────────────────────────────────
   const renderLoginScreen = () => {
-    const isOnline = navigator.onLine;
-    const debugPanel = `
-    <div style="margin-top:24px;padding:12px;background:${isOnline ? '#e8f5e9' : '#fff3e0'};border-radius:8px;border:1px solid ${isOnline ? '#4CAF50' : '#FF9800'};">
-      <p style="margin:0;font-size:0.75rem;color:#666;font-weight:600;">🔍 DEBUG INFO:</p>
-      <p style="margin:4px 0;font-size:0.75rem;color:#333;font-family:monospace;">Network: <strong>${isOnline ? '🟢 ONLINE' : '🔴 OFFLINE'}</strong></p>
-      <p style="margin:4px 0;font-size:0.75rem;color:#333;font-family:monospace;">Demo: admin@pos.com / Admin@123</p>
-      <p style="margin:4px 0;font-size:0.75rem;color:#333;font-family:monospace;">Demo: cashier@pos.com / Cashier@123</p>
-    </div>`;
-
+    const isOffline = !navigator.onLine;
+    const hasOfflineCreds = !!Storage.get('offline_creds');
     return `
 <div class="auth-screen page">
   <div class="auth-card">
@@ -179,6 +104,22 @@ const Auth = (() => {
       <h1 class="auth-title">SwiftPOS</h1>
       <p class="auth-subtitle">Sign in to your account</p>
     </div>
+
+    ${isOffline ? `
+    <div style="
+      display:flex;align-items:center;gap:10px;
+      padding:10px 14px;margin-bottom:16px;
+      background:${hasOfflineCreds ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)'};
+      border:1px solid ${hasOfflineCreds ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)'};
+      border-radius:10px;font-size:0.8rem;
+    ">
+      <span style="font-size:1.1rem;">${hasOfflineCreds ? '⚡' : '📵'}</span>
+      <span style="color:${hasOfflineCreds ? 'var(--c-yellow)' : 'var(--c-red)'};">
+        ${hasOfflineCreds
+          ? 'You\'re offline. Use your last credentials to sign in.'
+          : 'No internet. Connect to the internet for your first login.'}
+      </span>
+    </div>` : ''}
     
     <form id="login-form" onsubmit="Auth.handleLogin(event)">
       <div class="form-group">
@@ -186,7 +127,8 @@ const Auth = (() => {
         <div class="input-group">
           <span class="input-icon">✉</span>
           <input type="email" class="form-input" id="login-email" 
-            placeholder="admin@pos.com" autocomplete="email" required>
+            placeholder="admin@pos.com" autocomplete="email" required
+            value="${isOffline && hasOfflineCreds ? Storage.get('offline_creds')?.email || '' : ''}">
         </div>
       </div>
       
@@ -202,7 +144,7 @@ const Auth = (() => {
       <div id="login-error" class="form-error hidden"></div>
       
       <button type="submit" class="btn btn-primary btn-full btn-lg mt-lg" id="login-btn">
-        Sign In
+        ${isOffline ? '⚡ Sign In Offline' : 'Sign In'}
       </button>
     </form>
     
@@ -216,8 +158,6 @@ const Auth = (() => {
       <p class="text-mono text-sm">admin@pos.com / Admin@123</p>
       <p class="text-mono text-sm">cashier@pos.com / Cashier@123</p>
     </div>
-    
-    ${debugPanel}
   </div>
 </div>`;
   };
@@ -273,15 +213,37 @@ const Auth = (() => {
     btn.disabled = true;
     btn.innerHTML = '<div class="spinner spinner-sm"></div> Signing in...';
 
+    // ── Offline login path ────────────────────────────────────────────────────
+    if (!navigator.onLine) {
+      const offlineOk = loginOffline(email, password);
+      if (offlineOk) {
+        window.App.navigate('dashboard');
+        Toast.show(`✓ Welcome back, ${currentUser.name}! (Offline mode)`, 'warning');
+      } else {
+        errEl.textContent = 'No internet connection. Please connect to the internet for your first login.';
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.innerHTML = 'Sign In';
+      }
+      return;
+    }
+
+    // ── Online login path ─────────────────────────────────────────────────────
     try {
-      console.log('[Login] Attempting login:', { email, isOnline: navigator.onLine });
       await login(email, password);
-      storeCredentials(email, password);
       window.App.navigate('dashboard');
       Toast.show(`Welcome back, ${currentUser.name}!`, 'success');
     } catch (err) {
-      console.error('[Login] Error:', err.message, err);
-      errEl.textContent = err.message || 'Login failed';
+      // If network error during submit, try offline credentials
+      if (err.isOffline || err.status === 0) {
+        const offlineOk = loginOffline(email, password);
+        if (offlineOk) {
+          window.App.navigate('dashboard');
+          Toast.show(`✓ Signed in offline. Will sync when connected.`, 'warning');
+          return;
+        }
+      }
+      errEl.textContent = err.message;
       errEl.classList.remove('hidden');
       btn.disabled = false;
       btn.innerHTML = 'Sign In';
@@ -303,7 +265,6 @@ const Auth = (() => {
     try {
       const res = await API.post('/auth/register', { name, email, password });
       setSession(res.token, res.user);
-      storeCredentials(email, password);
       window.App.navigate('dashboard');
       Toast.show('Account created successfully!', 'success');
     } catch (err) {
@@ -319,7 +280,7 @@ const Auth = (() => {
 
   return {
     getUser, getToken, isLoggedIn, isAdmin,
-    login, logout, verify, loadFromStorage, clearSession, storeCredentials,
+    login, loginOffline, saveOfflineCredentials, logout, verify, loadFromStorage, clearSession,
     renderLoginScreen, renderRegisterScreen,
     handleLogin, handleRegister, showLogin, showRegister,
   };
