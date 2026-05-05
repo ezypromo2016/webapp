@@ -103,13 +103,21 @@ const Auth = (() => {
     </div>` : ''}
 
     <form id="login-form" onsubmit="Auth.handleLogin(event)">
-      <div class="form-group">
-        <label class="form-label">Email Address</label>
-        <div class="input-group">
-          <span class="input-icon">&#9993;</span>
-          <input type="email" class="form-input" id="login-email" placeholder="admin@pos.com" autocomplete="email" required value="${offline && hasCreds ? savedEmail : ''}">
-        </div>
-      </div>
+     <div class="form-group">
+  <label class="form-label" for="login-email">Email Address</label>
+  <div class="input-group">
+    <span class="input-icon">&#9993;</span>
+    <input type="email" class="form-input" id="login-email" required>
+  </div>
+</div>
+
+<div class="form-group">
+  <label class="form-label" for="login-password">Password</label>
+  <div class="input-group">
+    <span class="input-icon">&#128274;</span>
+    <input type="password" class="form-input" id="login-password" required>
+  </div>
+</div>
       <div class="form-group">
         <label class="form-label">Password</label>
         <div class="input-group">
