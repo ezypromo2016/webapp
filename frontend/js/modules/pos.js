@@ -68,7 +68,7 @@ const POS = (() => {
     } else {
       cart.push({ ...product, quantity: 1 });
     }
-    updateCart();[cite: 2]
+    updateCart();
   };
 
   const updateCart = () => {
