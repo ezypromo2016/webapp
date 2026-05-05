@@ -5,11 +5,14 @@
 const Products = (() => {
   let products = [];
 
+const Products = (() => {
   const render = async () => {
-    // Inject the layout structure into the main #app div
-    const appEl = document.getElementById('app');
-    if (!appEl) return;
-
+    document.getElementById('app').innerHTML = '<h1>Products</h1><div id="list"></div>';
+    const res = await API.get('/products');
+    document.getElementById('list').innerHTML = JSON.stringify(res.data);
+  };
+  return { render };
+})();
     appEl.innerHTML = `
       <div class="main-layout">
         <div class="content-area">
