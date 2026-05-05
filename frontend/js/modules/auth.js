@@ -1,5 +1,6 @@
 const Auth = (() => {
   let currentUser = null;
+  console.log("Auth module initialized"); // Debug log
 
   const getUser = () => currentUser;
   const getToken = () => Storage.get('token');
@@ -33,18 +34,18 @@ const Auth = (() => {
   const renderLoginScreen = () => `
     <div class="auth-screen page">
       <div class="auth-card">
-        <h1>SwiftPOS</h1>
+        <h1 class="auth-title">SwiftPOS</h1>
         <form id="login-form" onsubmit="Auth.handleLogin(event)">
           <div class="form-group">
             <label for="login-email">Email Address</label>
-            <input type="email" id="login-email" class="form-input" required>
+            <input type="email" id="login-email" class="form-input" required placeholder="admin@pos.com">
           </div>
           <div class="form-group">
             <label for="login-password">Password</label>
-            <input type="password" id="login-password" class="form-input" required>
+            <input type="password" id="login-password" class="form-input" required placeholder="••••••••">
           </div>
           <div id="login-error" class="form-error hidden"></div>
-          <button type="submit" id="login-btn" class="btn btn-primary btn-full">Login</button>
+          <button type="submit" id="login-btn" class="btn btn-primary btn-full">Sign In</button>
         </form>
       </div>
     </div>`;
@@ -67,5 +68,5 @@ const Auth = (() => {
   };
 })();
 
-// CRITICAL: Exporting to window passes the index.html check
+// CRITICAL: This allows other scripts to see the Auth module
 window.Auth = Auth;
