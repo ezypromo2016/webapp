@@ -61,3 +61,5 @@ const Sync = (() => {
     sync: syncOfflineTransactions,
   };
 })();
+
+window.Sync = Sync;
