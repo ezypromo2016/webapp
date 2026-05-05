@@ -4,55 +4,11 @@ const Auth = (() => {
   const getUser = () => currentUser;
   const getToken = () => Storage.get('token');
   const isLoggedIn = () => !!getToken() && !!currentUser;
-  const isAdmin = () => currentUser?.role === 'admin';
 
   const setSession = (token, user) => {
     Storage.set('token', token);
     Storage.set('user', user);
     currentUser = user;
-  };
-
-  const clearSession = () => {
-    Storage.clear();
-    currentUser = null;
-  };
-
-  const loadFromStorage = () => {
-    const token = Storage.get('token');
-    const user = Storage.get('user');
-    if (token && user) {
-      currentUser = user;
-      return true;
-    }
-    return false;
-  };
-
-  const verify = async () => {
-    if (!navigator.onLine) return !!currentUser;
-    try {
-      const res = await API.get('/auth/me');
-      currentUser = res.user;
-      Storage.set('user', res.user);
-      return true;
-    } catch (err) {
-      if (!err.status || err.status === 0 || err.isOffline) return !!currentUser;
-      if (err.status === 401) { clearSession(); return false; }
-      return !!currentUser;
-    }
-  };
-
-  const saveOfflineCreds = (email, password, user) => {
-    try {
-      const hash = btoa(unescape(encodeURIComponent(email.toLowerCase() + '||' + password + '||pos2024')));
-      Storage.set('offline_creds', { email: email.toLowerCase(), hash, user });
-    } catch (e) {}
-  };
-
-  const login = async (email, password) => {
-    const res = await API.post('/auth/login', { email, password });
-    setSession(res.token, res.user);
-    saveOfflineCreds(email, password, res.user);
-    return res.user;
   };
 
   const loginOffline = (email, password) => {
@@ -84,11 +40,15 @@ const Auth = (() => {
     <form id="login-form" onsubmit="Auth.handleLogin(event)">
       <div class="form-group">
         <label class="form-label" for="login-email">Email Address</label>
-        <input type="email" class="form-input" id="login-email" required value="${offline && hasCreds ? savedEmail : ''}">
+        <div class="input-group">
+          <input type="email" class="form-input" id="login-email" required value="${offline && hasCreds ? savedEmail : ''}">
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label" for="login-password">Password</label>
-        <input type="password" class="form-input" id="login-password" required>
+        <div class="input-group">
+          <input type="password" class="form-input" id="login-password" required>
+        </div>
       </div>
       <div id="login-error" class="form-error hidden"></div>
       <button type="submit" class="btn btn-primary btn-full" id="login-btn">
@@ -103,40 +63,43 @@ const Auth = (() => {
     e.preventDefault();
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
-    const btn = document.getElementById('login-btn');
     const errEl = document.getElementById('login-error');
 
-    errEl.classList.add('hidden');
-    btn.disabled = true;
-
-    if (!navigator.onLine) {
-      if (loginOffline(email, password)) {
-        window.App.navigate('dashboard');
-      } else {
-        errEl.textContent = 'Offline credentials not found.';
-        errEl.classList.remove('hidden');
-        btn.disabled = false;
-      }
-      return;
-    }
-
     try {
-      await login(email, password);
+      if (!navigator.onLine) {
+        if (loginOffline(email, password)) return window.App.navigate('dashboard');
+        throw new Error('Offline credentials not recognized.');
+      }
+      const res = await API.post('/auth/login', { email, password });
+      setSession(res.token, res.user);
+      // Save for next time we are offline
+      const hash = btoa(unescape(encodeURIComponent(email.toLowerCase() + '||' + password + '||pos2024')));
+      Storage.set('offline_creds', { email: email.toLowerCase(), hash, user: res.user });
       window.App.navigate('dashboard');
     } catch (err) {
-      errEl.textContent = err.message || 'Login failed.';
+      errEl.textContent = err.message;
       errEl.classList.remove('hidden');
-      btn.disabled = false;
     }
   };
 
   return {
-    getUser, getToken, isLoggedIn, isAdmin, login, loginOffline,
-    verify, loadFromStorage, renderLoginScreen, handleLogin,
-    logout: () => { clearSession(); window.App.navigate('login'); },
-    showRegister: () => window.App.navigate('register'),
-    showLogin: () => window.App.navigate('login')
+    getUser, getToken, isLoggedIn, renderLoginScreen, handleLogin,
+    isAdmin: () => currentUser?.role === 'admin',
+    verify: async () => {
+      if (!navigator.onLine) return !!currentUser;
+      try {
+        const res = await API.get('/auth/me');
+        currentUser = res.user;
+        return true;
+      } catch { return !!currentUser; }
+    },
+    loadFromStorage: () => {
+      const token = Storage.get('token');
+      const user = Storage.get('user');
+      if (token && user) { currentUser = user; return true; }
+      return false;
+    }
   };
 })();
 
-window.Auth = Auth;
+window.Auth = Auth; // Explicitly export for index.html check
