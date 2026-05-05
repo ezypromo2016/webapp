@@ -53,75 +53,17 @@
 <!-- Sidebar Overlay (mobile) -->
 <div id="sidebar-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:199;" onclick="closeSidebar()"></div>
 
-<!-- JS Modules -->
+<!-- Utility Scripts (always needed) -->
 <script src="/js/utils/storage.js?v=1.0.1"></script>
 <script src="/js/utils/api.js?v=1.0.1"></script>
 <script src="/js/utils/sync.js?v=1.0.1"></script>
 <script src="/js/utils/receipt.js?v=1.0.1"></script>
+
+<!-- Auth module (needed immediately for login screen) -->
 <script src="/js/modules/auth.js?v=1.0.1"></script>
-<script src="/js/modules/dashboard.js?v=1.0.1"></script>
-<script src="/js/modules/pos.js?v=1.0.1"></script>
-<script src="/js/modules/printing.js?v=1.0.1"></script>
-<script src="/js/modules/products.js?v=1.0.1"></script>
-<script src="/js/modules/transactions.js?v=1.0.1"></script>
-<script src="/js/modules/inventory.js?v=1.0.1"></script>
+
+<!-- App controller (remaining modules are loaded on-demand) -->
 <script src="/js/app.js?v=1.0.1"></script>
-
-<!-- Startup Script -->
-<script>
-  // Cache-busting: Add timestamp to all script sources
-  (function() {
-    const scripts = document.querySelectorAll('script[src*="/js/"]');
-    const timestamp = Date.now();
-    scripts.forEach(script => {
-      const src = script.getAttribute('src');
-      if (src) {
-        const separator = src.includes('?') ? '&' : '?';
-        script.setAttribute('src', src + separator + 't=' + timestamp);
-      }
-    });
-  })();
-
-  // Initialize the app
-  (async () => {
-    // Register service worker for PWA and offline support
-    if ('serviceWorker' in navigator) {
-      try {
-        await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-        console.log('[SW] Service worker registered');
-      } catch (err) {
-        console.warn('[SW] Registration failed:', err);
-      }
-    }
-
-    // Load user from storage if available
-    const isLoggedIn = Auth.loadFromStorage();
-    
-    // Show the app
-    document.getElementById('loading-screen').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-
-    // Navigate to dashboard or login
-    if (isLoggedIn) {
-      App.navigate('dashboard');
-    } else {
-      App.navigate('login');
-    }
-
-    // Auto-sync pending transactions every 30 seconds if online
-    setInterval(async () => {
-      if (navigator.onLine && Auth.isLoggedIn()) {
-        const pending = await OfflineDB.getPending();
-        if (pending.length > 0) {
-          console.log('[Sync] Auto-syncing pending transactions...');
-          await Sync.sync();
-        }
-      }
-    }, 30000);
-
-    console.log('[POS] App initialized');
-  })();
-</script>
 
 </body>
 </html>
