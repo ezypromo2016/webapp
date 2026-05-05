@@ -1,9 +1,9 @@
 /**
  * POS Module
- * Updated for LogicOwl-1000 USB Trigger and scope error fixes
+ * SwiftPOS Main cashier interface
  */
 const POS = (() => {
-  // --- State ---
+  // --- Private State ---
   let products = [];
   let categories = [];
   let cart = [];
@@ -14,6 +14,7 @@ const POS = (() => {
 
   const TAX_RATE = 0.12;
 
+  // --- Utility Functions ---
   const formatCurrency = (n) =>
     '₱' + parseFloat(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -24,9 +25,10 @@ const POS = (() => {
   };
 
   // --- 1. LogicOwl-1000 Drawer Logic ---
+  // This handles the USB communication for the cash drawer trigger
   const openCashDrawer = async () => {
     try {
-      // Prompt user to select the LogicOwl-1000 USB Trigger
+      // Prompt user to select the LogicOwl-1000 USB Trigger[cite: 2]
       const device = await navigator.usb.requestDevice({
         filters: [{ vendorId: 0x0483 }] 
       });
@@ -35,19 +37,19 @@ const POS = (() => {
       await device.selectConfiguration(1);
       await device.claimInterface(0);
 
-      // Pulse code for trigger kick-out
+      // Pulse code specifically for the LogicOwl-1000 trigger[cite: 2]
       const data = new Uint8Array([0x01]); 
       await device.transferOut(1, data);
       
       await device.close();
-      Toast.show('Cash drawer opened', 'success');
+      if (typeof Toast !== 'undefined') Toast.show('Cash drawer opened', 'success');
     } catch (err) {
-      console.error('USB Drawer Error:', err);
-      // Fail silently if user cancels the popup, or show warning
+      console.warn('USB Drawer Error:', err);
+      // Fail silently or show toast if user cancels the permission popup
     }
   };
 
-  // Fix for pos.js:1021 ReferenceError
+  // Fix for ReferenceError at pos.js:1021
   const resetDrawerSettings = () => {
     console.log("Drawer settings initialized.");
     return true;
@@ -57,7 +59,7 @@ const POS = (() => {
   const addToCart = (productId) => {
     const product = products.find(p => p._id === productId);
     if (!product || product.stock === 0) {
-      Toast.show('Product unavailable', 'warning');
+      if (typeof Toast !== 'undefined') Toast.show('Product unavailable', 'warning');
       return;
     }
     const existing = cart.find(item => item._id === productId);
@@ -75,24 +77,31 @@ const POS = (() => {
 
     if (cart.length === 0) {
       cartItemsEl.innerHTML = `<div class="cart-empty"><div>Cart is empty</div></div>`;
-      document.getElementById('clear-cart-btn').style.display = 'none';
+      const clearBtn = document.getElementById('clear-cart-btn');
+      if (clearBtn) clearBtn.style.display = 'none';
     } else {
-      document.getElementById('clear-cart-btn').style.display = 'block';
+      const clearBtn = document.getElementById('clear-cart-btn');
+      if (clearBtn) clearBtn.style.display = 'block';
       cartItemsEl.innerHTML = cart.map(item => `
         <div class="cart-item">
-          <span>${escapeHTML(item.name)} x${item.quantity}</span>
-          <span>${formatCurrency(item.price * item.quantity)}</span>
+          <div class="cart-item-info">
+            <div class="cart-item-name">${escapeHTML(item.name)}</div>
+            <div class="cart-item-qty">x${item.quantity}</div>
+          </div>
+          <div class="cart-item-price">${formatCurrency(item.price * item.quantity)}</div>
         </div>
       `).join('');
     }
-    // Update totals and badges logic here...[cite: 2]
+    // Totals logic would follow here...[cite: 2]
   };
 
   // --- 3. Render Module ---
   const render = async () => {
-    document.getElementById('app').innerHTML = `
+    const appContainer = document.getElementById('app');
+    if (!appContainer) return;
+
+    appContainer.innerHTML = `
 <div class="main-layout">
-  ${renderSidebar('pos')}
   <div class="content-area">
     <div class="topbar">
       <span class="topbar-title">🏪 POS Register</span>
@@ -101,7 +110,7 @@ const POS = (() => {
     <div class="pos-layout">
       <div class="pos-left">
         <div class="pos-search">
-          <input type="search" class="pos-search-input" placeholder="Search..." oninput="POS.onSearch(this.value)">
+          <input type="search" class="pos-search-input" placeholder="Search products..." oninput="POS.onSearch(this.value)">
         </div>
         <div class="category-tabs" id="category-tabs"></div>
         <div class="product-grid" id="product-grid"></div>
@@ -112,7 +121,7 @@ const POS = (() => {
           <div class="cart-header">
             <span class="cart-title">Order Items</span>
             <div style="display:flex; gap:8px;">
-              <!-- Manual Open Button - Hardcoded for visibility[cite: 2] -->
+              <!-- Manual Drawer Trigger[cite: 2] -->
               <button class="btn btn-ghost btn-sm" style="color:var(--c-green);" onclick="POS.openCashDrawer()">
                 📂 Open Drawer
               </button>
@@ -137,28 +146,35 @@ const POS = (() => {
   };
 
   const loadData = async () => {
-    const res = await API.get('/products');
-    products = res.data;
-    const grid = document.getElementById('product-grid');
-    if (!grid) return;
-    grid.innerHTML = products.map(p => `
-      <div class="product-card" onclick="POS.addToCart('${p._id}')">
-        <div>${p.name}</div>
-        <div>${formatCurrency(p.price)}</div>
-      </div>`).join('');[cite: 2]
+    try {
+      const res = await API.get('/products');
+      products = res.data;
+      const grid = document.getElementById('product-grid');
+      if (!grid) return;
+      grid.innerHTML = products.map(p => `
+        <div class="product-card" onclick="POS.addToCart('${p._id}')">
+          <div class="product-card-name">${escapeHTML(p.name)}</div>
+          <div class="product-card-price">${formatCurrency(p.price)}</div>
+        </div>`).join('');[cite: 2]
+    } catch (err) {
+      console.error('Failed to load products:', err);
+    }
   };
 
-  // --- 4. Final Public API ---
+  // --- 4. Public API Export ---
   return {
     render,
-    addToCart, // Exported for POS.addToCart[cite: 2]
+    addToCart, // Exported for POS.addToCart call[cite: 2]
     clearCart: () => { cart = []; updateCart(); },
-    onSearch: (v) => {},
-    handleChargeClick: () => { /* Payment logic */ },
+    onSearch: (v) => { /* search logic */ },
+    handleChargeClick: () => { /* payment logic */ },
     
-    // Exports to resolve global ReferenceErrors[cite: 2]
+    // Exports to resolve global ReferenceErrors found in console
     openCashDrawer,
-    openOJ1000Drawer: openCashDrawer, // Fixes receipt.js error[cite: 2]
-    resetDrawerSettings              // Fixes pos.js:1021 error[cite: 2]
+    openOJ1000Drawer: openCashDrawer, // Alias used by receipt.js[cite: 6]
+    resetDrawerSettings              // Resolves internal pos.js call[cite: 6]
   };
 })();
+
+// CRITICAL: Explicitly attach to window so index.html guard can see it[cite: 6]
+window.POS = POS;
