@@ -141,3 +141,5 @@ const OfflineDB = (() => {
     },
   };
 })();
+
+window.Storage = Storage;
