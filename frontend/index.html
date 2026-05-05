@@ -39,8 +39,20 @@
   window.addEventListener('load', function() {
     var required = ['Storage','API','Auth','Dashboard','POS','Products','Transactions','Inventory','App'];
     var missing = required.filter(function(m) { return typeof window[m] === 'undefined'; });
+    
     if (missing.length > 0) {
-     console.error('Missing modules:', missing);
+      console.error('Missing modules:', missing);
+      
+      if (typeof window.App !== 'undefined') return;
+
+      document.getElementById('loading-screen').innerHTML =
+        '<div style="text-align:center;padding:32px;">' +
+        '<div style="font-size:2rem;margin-bottom:16px;">⚠️</div>' +
+        '<p style="color:#ef4444;margin-bottom:8px;">Failed to load: ' + missing.join(', ') + '</p>' +
+        '<p style="color:#5a5a78;font-size:0.85rem;margin-bottom:16px;">Check your connection and try again.</p>' +
+        '<button onclick="location.reload()" style="background:#6366f1;color:white;border:none;' +
+        'padding:10px 24px;border-radius:8px;cursor:pointer;font-size:1rem;">Reload</button>' +
+        '</div>';
     }
   });
 </script>
