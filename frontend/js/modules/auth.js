@@ -1,6 +1,5 @@
 const Auth = (() => {
   let currentUser = null;
-  console.log("Auth module initialized"); // Debug log
 
   const getUser = () => currentUser;
   const getToken = () => Storage.get('token');
@@ -35,6 +34,7 @@ const Auth = (() => {
     <div class="auth-screen page">
       <div class="auth-card">
         <h1 class="auth-title">SwiftPOS</h1>
+        <p class="auth-subtitle">Sign in to continue</p>
         <form id="login-form" onsubmit="Auth.handleLogin(event)">
           <div class="form-group">
             <label for="login-email">Email Address</label>
@@ -45,7 +45,7 @@ const Auth = (() => {
             <input type="password" id="login-password" class="form-input" required placeholder="••••••••">
           </div>
           <div id="login-error" class="form-error hidden"></div>
-          <button type="submit" id="login-btn" class="btn btn-primary btn-full">Sign In</button>
+          <button type="submit" id="login-btn" class="btn btn-primary btn-full">Login</button>
         </form>
       </div>
     </div>`;
@@ -57,6 +57,7 @@ const Auth = (() => {
       try {
         const res = await API.get('/auth/me');
         currentUser = res.user;
+        Storage.set('user', res.user);
         return true;
       } catch { return false; }
     },
@@ -68,5 +69,5 @@ const Auth = (() => {
   };
 })();
 
-// CRITICAL: This allows other scripts to see the Auth module
+// This line is required for app.js and index.html to find this module
 window.Auth = Auth;
