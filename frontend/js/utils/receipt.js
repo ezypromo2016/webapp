@@ -256,3 +256,5 @@ const Receipt = (() => {
 
   return { print, exportPDF, buildHTML };
 })();
+
+window.Receipt = Receipt;
