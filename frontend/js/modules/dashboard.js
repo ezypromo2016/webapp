@@ -75,93 +75,19 @@ const Dashboard = (() => {
 
   const loadData = async () => {
     try {
-      console.log('[Dashboard] Loading data online...');
       const [summaryRes, chartRes, paymentRes] = await Promise.all([
         API.get('/dashboard/summary'),
         API.get('/dashboard/chart', { days: 30 }),
         API.get('/dashboard/payment-breakdown'),
       ]);
 
-      console.log('[Dashboard] ✓ Loaded online data');
       renderStats(summaryRes.data);
       renderSalesChart(chartRes.data);
       renderPaymentChart(paymentRes.data);
       renderRecentTransactions(summaryRes.data.recentTransactions);
       renderTopProducts(summaryRes.data.topProducts);
     } catch (err) {
-      console.log('[Dashboard] ✗ Online load failed, trying cached data:', err.message);
-
-      // Try to load cached dashboard data
-      const cachedSummary = Storage.getCache('api_/dashboard/summary');
-      const cachedChart = Storage.getCache('api_/dashboard/chart');
-      const cachedPayment = Storage.getCache('api_/dashboard/payment-breakdown');
-      const unwrap = (value) => value && value.data ? value.data : value;
-      const summaryData = unwrap(cachedSummary);
-      const chartData = unwrap(cachedChart);
-      const paymentData = unwrap(cachedPayment);
-
-      if (summaryData) {
-        console.log('[Dashboard] ✓ Using cached summary data');
-        renderStats(summaryData);
-        renderRecentTransactions(summaryData.recentTransactions || []);
-        renderTopProducts(summaryData.topProducts || []);
-      } else {
-        console.log('[Dashboard] ✗ No cached summary data');
-        // Show empty state
-        document.getElementById('stats-grid').innerHTML = `
-          <div class="stat-card" style="--stat-color:var(--c-border2)">
-            <div class="stat-label">Today's Sales</div>
-            <div class="stat-value">₱0.00</div>
-            <div class="stat-sub">Offline mode</div>
-          </div>
-          <div class="stat-card" style="--stat-color:var(--c-border2)">
-            <div class="stat-label">This Week</div>
-            <div class="stat-value">₱0.00</div>
-            <div class="stat-sub">Offline mode</div>
-          </div>
-          <div class="stat-card" style="--stat-color:var(--c-border2)">
-            <div class="stat-label">This Month</div>
-            <div class="stat-value">₱0.00</div>
-            <div class="stat-sub">Offline mode</div>
-          </div>
-          <div class="stat-card" style="--stat-color:var(--c-border2)">
-            <div class="stat-label">Inventory Value</div>
-            <div class="stat-value">₱0.00</div>
-            <div class="stat-sub">Offline mode</div>
-          </div>`;
-      }
-
-      if (chartData) {
-        console.log('[Dashboard] ✓ Using cached chart data');
-        renderSalesChart(chartData);
-      } else {
-        console.log('[Dashboard] ✗ No cached chart data');
-        const ctx = document.getElementById('sales-chart')?.getContext('2d');
-        if (ctx) {
-          new Chart(ctx, {
-            type: 'line',
-            data: { labels: [], datasets: [] },
-            options: { plugins: { legend: { display: false } } }
-          });
-        }
-      }
-
-      if (paymentData) {
-        console.log('[Dashboard] ✓ Using cached payment data');
-        renderPaymentChart(paymentData);
-      } else {
-        console.log('[Dashboard] ✗ No cached payment data');
-        const ctx = document.getElementById('payment-chart')?.getContext('2d');
-        if (ctx) {
-          new Chart(ctx, {
-            type: 'doughnut',
-            data: { labels: [], datasets: [] },
-            options: { plugins: { legend: { display: false } } }
-          });
-        }
-      }
-
-      Toast.show('⚠ Dashboard in offline mode. Some data may be outdated.', 'warning');
+      Toast.show('Failed to load dashboard: ' + err.message, 'error');
     }
   };
 

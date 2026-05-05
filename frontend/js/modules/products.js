@@ -59,55 +59,29 @@ const Products = (() => {
 
   const loadCategories = async () => {
     try {
-      console.log('[Products] Loading categories online...');
       const res = await API.get('/categories');
       categories = res.data;
-      console.log('[Products] ✓ Loaded online categories:', categories.length);
       const select = document.getElementById('cat-filter');
       if (select) {
-        select.innerHTML = '<option value="">All Categories</option>';
         categories.forEach(c => {
           select.innerHTML += `<option value="${c._id}">${c.icon} ${c.name}</option>`;
         });
       }
-    } catch (err) {
-      console.log('[Products] ✗ Online categories failed, trying cache:', err.message);
-      const cached = Storage.getCache('api_/categories');
-      const categoriesData = cached && cached.data ? cached.data : cached;
-      if (categoriesData) {
-        categories = categoriesData;
-        console.log('[Products] ✓ Using cached categories:', categories.length);
-        const select = document.getElementById('cat-filter');
-        if (select) {
-          select.innerHTML = '<option value="">All Categories</option>';
-          categories.forEach(c => {
-            select.innerHTML += `<option value="${c._id}">${c.icon} ${c.name}</option>`;
-          });
-        }
-      } else {
-        console.log('[Products] ✗ No cached categories');
-        Toast.show('⚠ Categories not available offline', 'warning');
-      }
-    }
+    } catch {}
   };
 
   const loadProducts = async (page = 1) => {
     currentPage = page;
     try {
-      console.log('[Products] Loading products online...');
       const params = { page, limit: 20, isActive: 'true' };
       if (currentSearch) params.search = currentSearch;
       if (currentCategory) params.category = currentCategory;
 
       const res = await API.get('/products', params);
       products = res.data;
-      console.log('[Products] ✓ Loaded online products:', products.length);
       renderTable(products, res.pagination);
     } catch (err) {
-      console.log('[Products] ✗ Online products failed, trying cache:', err.message);
-      // For products, we can't easily cache filtered results, so show a message
-      Toast.show('⚠ Product list not available offline. Connect to internet to view products.', 'warning');
-      renderTable([], { page: 1, pages: 1, total: 0 });
+      Toast.show('Failed to load products', 'error');
     }
   };
 

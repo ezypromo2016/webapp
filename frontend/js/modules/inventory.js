@@ -54,81 +54,17 @@ const Inventory = (() => {
 
   const loadData = async () => {
     try {
-      console.log('[Inventory] Loading data online...');
       const [summaryRes, lowRes, outRes] = await Promise.all([
         API.get('/inventory/summary'),
         API.get('/inventory/low-stock'),
         API.get('/inventory/out-of-stock'),
       ]);
 
-      console.log('[Inventory] ✓ Loaded online data');
       renderStats(summaryRes.data);
       renderLowStock(lowRes.data);
       renderOutOfStock(outRes.data);
     } catch (err) {
-      console.log('[Inventory] ✗ Online load failed, trying cached data:', err.message);
-
-      // Try to load cached inventory data
-      const cachedSummary = Storage.getCache('api_/inventory/summary');
-      const cachedLowStock = Storage.getCache('api_/inventory/low-stock');
-      const cachedOutOfStock = Storage.getCache('api_/inventory/out-of-stock');
-      const unwrap = (value) => value && value.data ? value.data : value;
-      const summaryData = unwrap(cachedSummary);
-      const lowStockData = unwrap(cachedLowStock);
-      const outOfStockData = unwrap(cachedOutOfStock);
-
-      if (summaryData) {
-        console.log('[Inventory] ✓ Using cached summary data');
-        renderStats(summaryData);
-      } else {
-        console.log('[Inventory] ✗ No cached summary data');
-        // Show empty stats
-        document.getElementById('inv-stats').innerHTML = `
-          <div class="stat-card" style="--stat-color:var(--c-border2)">
-            <div class="stat-label">Total Products</div>
-            <div class="stat-value">0</div>
-            <div class="stat-sub">Offline mode</div>
-            <div class="stat-icon">📦</div>
-          </div>
-          <div class="stat-card" style="--stat-color:var(--c-border2)">
-            <div class="stat-label">Low Stock</div>
-            <div class="stat-value">0</div>
-            <div class="stat-sub">Offline mode</div>
-            <div class="stat-icon">⚠</div>
-          </div>
-          <div class="stat-card" style="--stat-color:var(--c-border2)">
-            <div class="stat-label">Out of Stock</div>
-            <div class="stat-value">0</div>
-            <div class="stat-sub">Offline mode</div>
-            <div class="stat-icon">🚫</div>
-          </div>
-          <div class="stat-card" style="--stat-color:var(--c-border2)">
-            <div class="stat-label">Retail Value</div>
-            <div class="stat-value">₱0.00</div>
-            <div class="stat-sub">Offline mode</div>
-            <div class="stat-icon">💰</div>
-          </div>`;
-      }
-
-      if (lowStockData) {
-        console.log('[Inventory] ✓ Using cached low stock data');
-        renderLowStock(lowStockData);
-      } else {
-        console.log('[Inventory] ✗ No cached low stock data');
-        document.getElementById('low-stock-list').innerHTML = '<p class="text-sm text-muted" style="padding:24px;text-align:center;">No cached data available</p>';
-      }
-
-      if (outOfStockData) {
-        console.log('[Inventory] ✓ Using cached out of stock data');
-        renderOutOfStock(outOfStockData);
-      } else {
-        console.log('[Inventory] ✗ No cached out of stock data');
-        document.getElementById('out-of-stock-list').innerHTML = '<p class="text-sm text-muted" style="padding:24px;text-align:center;">No cached data available</p>';
-      }
-
-      if (!cachedSummary || !cachedLowStock || !cachedOutOfStock) {
-        Toast.show('⚠ Inventory in offline mode. Some data may be outdated.', 'warning');
-      }
+      Toast.show('Failed to load inventory: ' + err.message, 'error');
     }
   };
 

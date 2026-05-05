@@ -22,13 +22,6 @@ const POS = (() => {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   const render = async () => {
-    // Ensure dependencies are loaded
-    if (typeof Receipt === 'undefined' || typeof Receipt.openCashDrawer !== 'function') {
-      console.warn('[POS] Receipt module not loaded, retrying in 100ms...');
-      setTimeout(() => render(), 100);
-      return;
-    }
-
     const user = Auth.getUser();
     document.getElementById('app').innerHTML = `
 <div class="main-layout">
@@ -137,20 +130,9 @@ const POS = (() => {
               placeholder="Enter reference #">
           </div>
           
-          <div style="display:flex;gap:8px;margin-bottom:12px;">
-            <button class="btn btn-secondary btn-sm" onclick="Receipt.openCashDrawer()" 
-              style="flex:1;" title="Test cash drawer connection">
-              🏪 Open Drawer
-            </button>
-            <button class="btn btn-outline btn-sm" onclick="POS.showDrawerDebug()" 
-              style="flex:1;" title="Debug cash drawer settings">
-              🔧 Debug
-            </button>
-            <button class="charge-btn" id="charge-btn" disabled onclick="POS.handleChargeClick()" 
-              style="flex:2;">
-              <span id="charge-btn-text">Charge ₱0.00</span>
-            </button>
-          </div>
+          <button class="charge-btn" id="charge-btn" disabled onclick="POS.handleChargeClick()">
+            <span id="charge-btn-text">Charge ₱0.00</span>
+          </button>
         </div>
       </div>
     </div>
@@ -168,73 +150,22 @@ const POS = (() => {
 
   const loadData = async () => {
     try {
-      console.log('[POS] Loading data online...');
       const [productsRes, catsRes] = await Promise.all([
         API.get('/products', { isActive: 'true', limit: 200 }),
         API.get('/categories'),
       ]);
       products = productsRes.data;
       categories = catsRes.data;
-      console.log('[POS] ✓ Loaded online data:', { products: products.length, categories: categories.length });
       renderCategoryTabs();
       renderProducts(products);
     } catch (err) {
-      console.log('[POS] ✗ Online load failed, trying cached data:', err.message);
-
-      // Try to load from API cache first (more reliable)
-      let cachedProducts = Storage.getCache('api_/products');
-      let cachedCategories = Storage.getCache('api_/categories');
-
-      const unwrap = (value) => value && value.data ? value.data : value;
-
-      // Fallback to manual cache if API cache not available
-      if (!cachedProducts) {
-        cachedProducts = Storage.getCache('products');
-        console.log('[POS] Using manual product cache');
-      }
-      if (!cachedCategories) {
-        cachedCategories = Storage.getCache('categories');
-        console.log('[POS] Using manual category cache');
-      }
-
-      const productData = unwrap(cachedProducts);
-      const categoryData = unwrap(cachedCategories);
-
-      if (productData) {
-        products = productData;
-        console.log('[POS] ✓ Loaded cached products:', products.length);
-      } else {
-        products = [];
-        console.log('[POS] ✗ No cached products available');
-      }
-
-      if (categoryData) {
-        categories = categoryData;
-        console.log('[POS] ✓ Loaded cached categories:', categories.length);
-      } else {
-        categories = [];
-        console.log('[POS] ✗ No cached categories available');
-      }
-
-      renderCategoryTabs();
-      renderProducts(products);
-
-      if (products.length === 0 && categories.length === 0) {
-        Toast.show('⚠ No cached data available. Connect to internet to load products.', 'warning');
-      } else {
-        Toast.show('⚠ Using cached data. Some features may be limited.', 'warning');
-      }
+      Toast.show('Failed to load products: ' + err.message, 'error');
+      // Try to render with cached data
+      const cached = Storage.getCache('products');
+      if (cached) { products = cached; renderProducts(products); }
     }
-
-    // Always cache current data for offline use
-    if (products.length > 0) {
-      Storage.cache('products', products, 600);
-      console.log('[POS] Cached products for offline use');
-    }
-    if (categories.length > 0) {
-      Storage.cache('categories', categories, 600);
-      console.log('[POS] Cached categories for offline use');
-    }
+    // Cache for offline
+    if (products.length > 0) Storage.cache('products', products, 600);
   };
 
   // ── Category Tabs ────────────────────────────────────────────────────────────
@@ -478,7 +409,6 @@ ${discountAmount > 0 ? `<div class="totals-row discount-row"><span>Discount</spa
   const handleChargeClick = () => {
     if (cart.length === 0 || isProcessing) return;
     if (paymentMethod === 'cash') {
-      Receipt.openCashDrawer();
       showCashModal();
     } else {
       processPayment();
@@ -888,136 +818,11 @@ ${discountAmount > 0 ? `<div class="totals-row discount-row"><span>Discount</spa
     updateStatus(navigator.onLine);
   };
 
-  const showDrawerDebug = () => {
-    const settings = Receipt.getPrinterSettings();
-    const commands = Receipt.getAlternativeDrawerCommands();
-    const currentModel = Storage.get('drawer_model') || '';
-
-    const modal = document.createElement('div');
-    modal.id = 'drawer-debug-modal';
-    modal.style.cssText = `
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.8); z-index: 1000; display: flex;
-      align-items: center; justify-content: center; font-family: var(--font-body);
-    `;
-
-    modal.innerHTML = `
-<div style="
-  background: var(--c-surface); border: 1px solid var(--c-border2);
-  border-radius: 20px; width: 100%; max-width: 500px; box-shadow: 0 24px 60px rgba(0,0,0,0.7);
-  animation: slideUp 0.25s cubic-bezier(0.4,0,0.2,1); overflow: hidden;
-">
-  <!-- Header -->
-  <div style="
-    padding: 20px 24px 16px; border-bottom: 1px solid var(--c-border);
-    display: flex; align-items: center; justify-content: space-between;
-  ">
-    <div style="display:flex;align-items:center;gap:10px;">
-      <div style="
-        width:38px;height:38px;border-radius:10px;
-        background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);
-        display:flex;align-items:center;justify-content:center;font-size:1.2rem;
-      ">🔧</div>
-      <div>
-        <div style="font-family:var(--font-display);font-weight:700;font-size:0.95rem;">Cash Drawer Debug</div>
-        <div style="font-size:0.72rem;color:var(--c-text-3);font-family:var(--font-mono);">Test different settings</div>
-      </div>
-    </div>
-    <button onclick="document.getElementById('drawer-debug-modal').remove()"
-      style="background:var(--c-surface3);border:1px solid var(--c-border);border-radius:8px;
-             color:var(--c-text-3);width:32px;height:32px;cursor:pointer;font-size:1rem;
-             display:flex;align-items:center;justify-content:center;">✕</button>
-  </div>
-
-  <!-- Content -->
-  <div style="padding: 20px 24px;">
-    <div style="margin-bottom:16px;">
-      <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:4px;">Current Settings</label>
-      <div style="background:var(--c-surface3);padding:12px;border-radius:8px;font-family:var(--font-mono);font-size:0.75rem;">
-        Baud Rate: ${settings.baudRate}<br>
-        Command: ${Array.from(settings.drawerCommand).map(b => '0x' + b.toString(16).toUpperCase()).join(' ')}
-      </div>
-    </div>
-
-    <div style="margin-bottom:16px;">
-      <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:8px;">Drawer Model</label>
-      <select id="drawer-model-select" class="form-input" onchange="POS.setDrawerModel(this.value)">
-        <option value="" ${currentModel === '' ? 'selected' : ''}>Auto-detect</option>
-        <option value="oj1000" ${currentModel === 'oj1000' ? 'selected' : ''}>Logicowl OJ-1000</option>
-        <option value="standard" ${currentModel === 'standard' ? 'selected' : ''}>Standard ESC/POS</option>
-      </select>
-    </div>
-
-    <div style="margin-bottom:16px;">
-      <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:8px;">Alternative Commands</label>
-      ${commands.map((cmd, i) => `
-        <button class="btn btn-outline btn-sm" style="margin:2px;width:100%;text-align:left;font-family:var(--font-mono);font-size:0.7rem;"
-          onclick="POS.testDrawerCommand(${i})">
-          ${cmd.name}<br>
-          <small style="color:var(--c-text-3);">${Array.from(cmd.command).map(b => b.toString(16).toUpperCase()).join(' ')}</small>
-        </button>
-      `).join('')}
-    </div>
-
-    <div style="margin-bottom:16px;">
-      <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:4px;">Web Serial Support</label>
-      <div style="background:var(--c-surface3);padding:12px;border-radius:8px;font-size:0.75rem;">
-        ${'serial' in navigator ? '✅ Available' : '❌ Not supported'}<br>
-        Browser: ${navigator.userAgent.split(' ').pop().split('/')[0]}
-      </div>
-    </div>
-
-    <div style="display:flex;gap:8px;">
-      <button class="btn btn-primary" onclick="Receipt.openCashDrawer()">Test Current Settings</button>
-      <button class="btn btn-secondary" onclick="POS.resetDrawerSettings()">Reset to Default</button>
-    </div>
-  </div>
-</div>
-    `;
-
-    document.body.appendChild(modal);
-  };
-
-  const testDrawerCommand = async (index) => {
-    const commands = Receipt.getAlternativeDrawerCommands();
-    if (!commands[index]) return;
-
-    const cmd = commands[index];
-    Toast.show(`Testing: ${cmd.name}`, 'info');
-
-    // Temporarily set this command
-    const original = Receipt.getPrinterSettings().drawerCommand;
-    Receipt.setPrinterSettings({ drawerCommand: cmd.command });
-
-    try {
-      await Receipt.openCashDrawer();
-    } finally {
-      // Restore original
-      Receipt.setPrinterSettings({ drawerCommand: original });
-    }
-  };
-
-  const setDrawerModel = (model) => {
-    if (model) {
-      Storage.set('drawer_model', model);
-      if (model === 'oj1000') {
-        // Set OJ-1000 specific default command
-        Receipt.setPrinterSettings({ drawerCommand: [0x1B, 0x70, 0x00, 0x64, 0xC8] });
-      } else if (model === 'standard') {
-        // Set standard ESC/POS command
-        Receipt.setPrinterSettings({ drawerCommand: [0x1B, 0x70, 0x00, 0x19, 0xFA] });
-      }
-    } else {
-      Storage.remove('drawer_model');
-    }
-    Toast.show(`Drawer model set to ${model || 'auto-detect'}`, 'success');
-  };
-
   return {
     render, addToCart, updateQuantity, removeFromCart, clearCart,
     filterCategory, onSearch, onSearchKey,
     setDiscountType, setDiscountValue, selectPayment, updateChange,
     handleChargeClick, showCashModal, updateCashModal, setCashAmount, confirmCashPayment,
-    processPayment, switchTab, showDrawerDebug, testDrawerCommand, resetDrawerSettings, setDrawerModel,
+    processPayment, switchTab,
   };
 })();
