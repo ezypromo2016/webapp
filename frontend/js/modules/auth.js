@@ -9,6 +9,12 @@ const Auth = (() => {
     e.preventDefault();
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
+    const btn = document.getElementById('login-btn');
+    const errEl = document.getElementById('login-error');
+
+    if (errEl) errEl.classList.add('hidden');
+    if (btn) btn.disabled = true;
+
     try {
       const res = await API.post('/auth/login', { email, password });
       Storage.set('token', res.token);
@@ -16,24 +22,31 @@ const Auth = (() => {
       currentUser = res.user;
       window.App.navigate('dashboard');
     } catch (err) {
-      const errEl = document.getElementById('login-error');
       if (errEl) {
-        errEl.textContent = err.message;
+        errEl.textContent = err.message || 'Login failed';
         errEl.classList.remove('hidden');
       }
+      if (btn) btn.disabled = false;
     }
   };
 
   const renderLoginScreen = () => `
     <div class="auth-screen page">
-      <form id="login-form" onsubmit="Auth.handleLogin(event)">
-        <label for="login-email">Email</label>
-        <input type="email" id="login-email" required>
-        <label for="login-password">Password</label>
-        <input type="password" id="login-password" required>
-        <div id="login-error" class="hidden"></div>
-        <button type="submit">Login</button>
-      </form>
+      <div class="auth-card">
+        <h1>SwiftPOS</h1>
+        <form id="login-form" onsubmit="Auth.handleLogin(event)">
+          <div class="form-group">
+            <label for="login-email">Email Address</label>
+            <input type="email" id="login-email" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" class="form-input" required>
+          </div>
+          <div id="login-error" class="form-error hidden"></div>
+          <button type="submit" id="login-btn" class="btn btn-primary btn-full">Login</button>
+        </form>
+      </div>
     </div>`;
 
   return {
@@ -54,5 +67,5 @@ const Auth = (() => {
   };
 })();
 
-// CRITICAL: This line fixes the ReferenceError in app.js
+// CRITICAL: Exporting to window passes the index.html check
 window.Auth = Auth;
