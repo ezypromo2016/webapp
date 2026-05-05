@@ -143,77 +143,82 @@ const closeSidebar = () => {
 
 // ── App Router ────────────────────────────────────────────────────────────────
 const App = (() => {
+  // Track in-flight and completed dynamic module loads to avoid duplicate injections
+  const _loadedModules = new Set();
+  const _pendingLoads = new Map();
+
+  /**
+   * Dynamically inject a <script> tag for a module and wait for it to execute.
+   * Subsequent calls for the same module resolve immediately from the cache.
+   */
+  const loadModule = (moduleName) => {
+    if (_loadedModules.has(moduleName)) return Promise.resolve();
+    if (_pendingLoads.has(moduleName)) return _pendingLoads.get(moduleName);
+
+    const fileMap = {
+      dashboard:    '/js/modules/dashboard.js',
+      pos:          '/js/modules/pos.js',
+      products:     '/js/modules/products.js',
+      printing:     '/js/modules/printing.js',
+      transactions: '/js/modules/transactions.js',
+      inventory:    '/js/modules/inventory.js',
+    };
+
+    const src = fileMap[moduleName];
+    if (!src) return Promise.resolve();
+
+    const promise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = src + '?v=1.0.1';
+      script.onload = () => {
+        _loadedModules.add(moduleName);
+        _pendingLoads.delete(moduleName);
+        console.log(`[App] Module loaded dynamically: ${moduleName}`);
+        resolve();
+      };
+      script.onerror = () => {
+        _pendingLoads.delete(moduleName);
+        reject(new Error(`Failed to load module: ${moduleName}`));
+      };
+      document.head.appendChild(script);
+    });
+
+    _pendingLoads.set(moduleName, promise);
+    return promise;
+  };
+
   const routes = {
     login: () => {
-      if (typeof Auth === 'undefined') {
-        console.error('Auth module not loaded');
-        Toast.show('Auth module not loaded. Please refresh the page.', 'error');
-        return;
-      }
       document.getElementById('app').innerHTML = Auth.renderLoginScreen();
     },
     register: () => {
-      if (typeof Auth === 'undefined') {
-        console.error('Auth module not loaded');
-        Toast.show('Auth module not loaded. Please refresh the page.', 'error');
-        return;
-      }
       document.getElementById('app').innerHTML = Auth.renderRegisterScreen();
     },
-    dashboard: () => {
-      if (typeof Dashboard === 'undefined') {
-        console.error('Dashboard module not loaded');
-        Toast.show('Dashboard module not loaded. Please refresh the page.', 'error');
-        return;
-      }
+    dashboard: async () => {
+      await loadModule('dashboard');
       Dashboard.render();
     },
-    pos: () => {
-      if (typeof POS === 'undefined') {
-        console.error('POS module not loaded');
-        Toast.show('POS module not loaded. Please refresh the page.', 'error');
-        return;
-      }
+    pos: async () => {
+      await loadModule('pos');
       POS.render();
     },
-    products: () => {
-      if (typeof Products === 'undefined') {
-        console.error('Products module not loaded');
-        Toast.show('Products module not loaded. Please refresh the page.', 'error');
-        return;
-      }
+    products: async () => {
+      await loadModule('products');
       Products.render();
     },
-    printing: () => {
-      if (typeof Printing === 'undefined') {
-        console.error('Printing module not loaded');
-        Toast.show('Printing module not loaded. Please refresh the page.', 'error');
-        return;
-      }
+    printing: async () => {
+      await loadModule('printing');
       Printing.render();
     },
-    transactions: (params) => {
-      if (typeof Transactions === 'undefined') {
-        console.error('Transactions module not loaded');
-        Toast.show('Transactions module not loaded. Please refresh the page.', 'error');
-        return;
-      }
+    transactions: async (params) => {
+      await loadModule('transactions');
       Transactions.render(params);
     },
-    inventory: () => {
-      if (typeof Inventory === 'undefined') {
-        console.error('Inventory module not loaded');
-        Toast.show('Inventory module not loaded. Please refresh the page.', 'error');
-        return;
-      }
+    inventory: async () => {
+      await loadModule('inventory');
       Inventory.render();
     },
     settings: () => {
-      if (typeof Settings === 'undefined') {
-        console.error('Settings module not loaded');
-        Toast.show('Settings module not loaded. Please refresh the page.', 'error');
-        return;
-      }
       Settings.render();
     },
   };
@@ -629,52 +634,32 @@ const initNetworkMonitor = () => {
 };
 
 // ── App Bootstrap ─────────────────────────────────────────────────────────────
-const waitForModules = (timeout = 15000) => {
+// Only wait for Auth — all other modules are loaded on-demand when the user
+// navigates to the corresponding route, so there is nothing to block on here.
+const waitForModules = (timeout = 5000) => {
   return new Promise((resolve) => {
-    const requiredModules = ['Auth', 'Dashboard', 'POS', 'Products', 'Printing', 'Transactions', 'Inventory'];
-    let lastLoggedCount = -1;
+    const checkAuth = () => typeof window['Auth'] !== 'undefined';
 
-    const checkModules = () => {
-      const loadedModules = requiredModules.filter(moduleName => typeof window[moduleName] !== 'undefined');
-      const missing = requiredModules.filter(moduleName => typeof window[moduleName] === 'undefined');
-
-      // Only log when progress changes to avoid flooding the console
-      if (loadedModules.length !== lastLoggedCount) {
-        lastLoggedCount = loadedModules.length;
-        console.log(`[App] Module loading progress: ${loadedModules.length}/${requiredModules.length} loaded`, {
-          loaded: loadedModules,
-          pending: missing,
-        });
-      }
-
-      if (loadedModules.length === requiredModules.length) {
-        console.log('[App] All modules loaded successfully:', loadedModules);
-        return true;
-      }
-      return false;
-    };
-
-    // Check immediately
-    if (checkModules()) {
+    // Already available (synchronous script already executed)
+    if (checkAuth()) {
+      console.log('[App] Auth module ready');
       resolve({ timedOut: false, missing: [] });
       return;
     }
 
-    // Set up interval to check periodically
+    // Poll until Auth appears or we time out
     const interval = setInterval(() => {
-      if (checkModules()) {
+      if (checkAuth()) {
         clearInterval(interval);
+        console.log('[App] Auth module ready');
         resolve({ timedOut: false, missing: [] });
       }
-    }, 100);
+    }, 50);
 
-    // Timeout after specified time — resolve with a warning instead of rejecting
-    // so the app can continue and show a degraded-mode warning rather than crash
     setTimeout(() => {
       clearInterval(interval);
-      const missing = requiredModules.filter(moduleName => typeof window[moduleName] === 'undefined');
-      console.warn(`[App] Module load timeout after ${timeout}ms. Failed modules: ${missing.join(', ')}`);
-      resolve({ timedOut: true, missing });
+      console.warn(`[App] Auth module not available after ${timeout}ms`);
+      resolve({ timedOut: true, missing: ['Auth'] });
     }, timeout);
   });
 };
