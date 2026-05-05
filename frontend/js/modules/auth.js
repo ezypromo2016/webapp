@@ -5,101 +5,54 @@ const Auth = (() => {
   const getToken = () => Storage.get('token');
   const isLoggedIn = () => !!getToken() && !!currentUser;
 
-  const setSession = (token, user) => {
-    Storage.set('token', token);
-    Storage.set('user', user);
-    currentUser = user;
-  };
-
-  const loginOffline = (email, password) => {
-    try {
-      const creds = Storage.get('offline_creds');
-      if (!creds) return false;
-      const hash = btoa(unescape(encodeURIComponent(email.toLowerCase() + '||' + password + '||pos2024')));
-      if (creds.email === email.toLowerCase() && creds.hash === hash) {
-        currentUser = creds.user;
-        Storage.set('user', creds.user);
-        return true;
-      }
-    } catch (e) {}
-    return false;
-  };
-
-  const renderLoginScreen = () => {
-    const offline = !navigator.onLine;
-    const hasCreds = !!Storage.get('offline_creds');
-    const savedEmail = Storage.get('offline_creds')?.email || '';
-
-    return `
-<div class="auth-screen page">
-  <div class="auth-card">
-    <div class="auth-logo">
-      <div class="auth-logo-icon">&#127978;</div>
-      <h1 class="auth-title">SwiftPOS</h1>
-    </div>
-    <form id="login-form" onsubmit="Auth.handleLogin(event)">
-      <div class="form-group">
-        <label class="form-label" for="login-email">Email Address</label>
-        <div class="input-group">
-          <input type="email" class="form-input" id="login-email" required value="${offline && hasCreds ? savedEmail : ''}">
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="login-password">Password</label>
-        <div class="input-group">
-          <input type="password" class="form-input" id="login-password" required>
-        </div>
-      </div>
-      <div id="login-error" class="form-error hidden"></div>
-      <button type="submit" class="btn btn-primary btn-full" id="login-btn">
-        ${offline ? 'Sign In Offline' : 'Sign In'}
-      </button>
-    </form>
-  </div>
-</div>`;
-  };
-
   const handleLogin = async (e) => {
     e.preventDefault();
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
-    const errEl = document.getElementById('login-error');
-
     try {
-      if (!navigator.onLine) {
-        if (loginOffline(email, password)) return window.App.navigate('dashboard');
-        throw new Error('Offline credentials not recognized.');
-      }
       const res = await API.post('/auth/login', { email, password });
-      setSession(res.token, res.user);
-      // Save for next time we are offline
-      const hash = btoa(unescape(encodeURIComponent(email.toLowerCase() + '||' + password + '||pos2024')));
-      Storage.set('offline_creds', { email: email.toLowerCase(), hash, user: res.user });
+      Storage.set('token', res.token);
+      Storage.set('user', res.user);
+      currentUser = res.user;
       window.App.navigate('dashboard');
     } catch (err) {
-      errEl.textContent = err.message;
-      errEl.classList.remove('hidden');
+      const errEl = document.getElementById('login-error');
+      if (errEl) {
+        errEl.textContent = err.message;
+        errEl.classList.remove('hidden');
+      }
     }
   };
 
+  const renderLoginScreen = () => `
+    <div class="auth-screen page">
+      <form id="login-form" onsubmit="Auth.handleLogin(event)">
+        <label for="login-email">Email</label>
+        <input type="email" id="login-email" required>
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" required>
+        <div id="login-error" class="hidden"></div>
+        <button type="submit">Login</button>
+      </form>
+    </div>`;
+
   return {
-    getUser, getToken, isLoggedIn, renderLoginScreen, handleLogin,
-    isAdmin: () => currentUser?.role === 'admin',
+    getUser, getToken, isLoggedIn, handleLogin, renderLoginScreen,
     verify: async () => {
-      if (!navigator.onLine) return !!currentUser;
+      if (!navigator.onLine) return !!Storage.get('user');
       try {
         const res = await API.get('/auth/me');
         currentUser = res.user;
         return true;
-      } catch { return !!currentUser; }
+      } catch { return false; }
     },
     loadFromStorage: () => {
-      const token = Storage.get('token');
       const user = Storage.get('user');
-      if (token && user) { currentUser = user; return true; }
+      if (user) { currentUser = user; return true; }
       return false;
     }
   };
 })();
 
-window.Auth = Auth; // Explicitly export for index.html check
+// CRITICAL: This line fixes the ReferenceError in app.js
+window.Auth = Auth;
