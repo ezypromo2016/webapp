@@ -1,6 +1,5 @@
 const Auth = (() => {
   let currentUser = null;
-
   const getUser = () => currentUser;
   const getToken = () => Storage.get('token');
   const isLoggedIn = () => !!getToken() && !!currentUser;
@@ -9,12 +8,6 @@ const Auth = (() => {
     e.preventDefault();
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
-    const btn = document.getElementById('login-btn');
-    const errEl = document.getElementById('login-error');
-
-    if (errEl) errEl.classList.add('hidden');
-    if (btn) btn.disabled = true;
-
     try {
       const res = await API.post('/auth/login', { email, password });
       Storage.set('token', res.token);
@@ -22,52 +15,23 @@ const Auth = (() => {
       currentUser = res.user;
       window.App.navigate('dashboard');
     } catch (err) {
-      if (errEl) {
-        errEl.textContent = err.message || 'Login failed';
-        errEl.classList.remove('hidden');
-      }
-      if (btn) btn.disabled = false;
+      const errEl = document.getElementById('login-error');
+      if (errEl) { errEl.textContent = err.message; errEl.classList.remove('hidden'); }
     }
   };
 
   const renderLoginScreen = () => `
-    <div class="auth-screen page">
-      <div class="auth-card">
-        <h1 class="auth-title">SwiftPOS</h1>
-        <p class="auth-subtitle">Sign in to continue</p>
-        <form id="login-form" onsubmit="Auth.handleLogin(event)">
-          <div class="form-group">
-            <label for="login-email">Email Address</label>
-            <input type="email" id="login-email" class="form-input" required placeholder="admin@pos.com">
-          </div>
-          <div class="form-group">
-            <label for="login-password">Password</label>
-            <input type="password" id="login-password" class="form-input" required placeholder="••••••••">
-          </div>
-          <div id="login-error" class="form-error hidden"></div>
-          <button type="submit" id="login-btn" class="btn btn-primary btn-full">Login</button>
-        </form>
-      </div>
+    <div class="auth-screen">
+      <form onsubmit="Auth.handleLogin(event)">
+        <h1>SwiftPOS</h1>
+        <input type="email" id="login-email" required placeholder="Email">
+        <input type="password" id="login-password" required placeholder="Password">
+        <div id="login-error" class="hidden"></div>
+        <button type="submit">Login</button>
+      </form>
     </div>`;
 
-  return {
-    getUser, getToken, isLoggedIn, handleLogin, renderLoginScreen,
-    verify: async () => {
-      if (!navigator.onLine) return !!Storage.get('user');
-      try {
-        const res = await API.get('/auth/me');
-        currentUser = res.user;
-        Storage.set('user', res.user);
-        return true;
-      } catch { return false; }
-    },
-    loadFromStorage: () => {
-      const user = Storage.get('user');
-      if (user) { currentUser = user; return true; }
-      return false;
-    }
-  };
+  return { getUser, getToken, isLoggedIn, handleLogin, renderLoginScreen };
 })();
 
-// This line is required for app.js and index.html to find this module
-window.Auth = Auth;
+window.Auth = Auth; // CRITICAL
