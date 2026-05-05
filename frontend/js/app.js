@@ -629,37 +629,52 @@ const initNetworkMonitor = () => {
 };
 
 // ── App Bootstrap ─────────────────────────────────────────────────────────────
-const waitForModules = (timeout = 5000) => {
-  return new Promise((resolve, reject) => {
+const waitForModules = (timeout = 15000) => {
+  return new Promise((resolve) => {
     const requiredModules = ['Auth', 'Dashboard', 'POS', 'Products', 'Printing', 'Transactions', 'Inventory'];
+    let lastLoggedCount = -1;
+
     const checkModules = () => {
       const loadedModules = requiredModules.filter(moduleName => typeof window[moduleName] !== 'undefined');
-      if (loadedModules.length === requiredModules.length) {
-        console.log('[App] All modules loaded:', loadedModules);
-        resolve();
-      } else {
-        const missing = requiredModules.filter(moduleName => typeof window[moduleName] === 'undefined');
-        console.log('[App] Waiting for modules:', missing);
+      const missing = requiredModules.filter(moduleName => typeof window[moduleName] === 'undefined');
+
+      // Only log when progress changes to avoid flooding the console
+      if (loadedModules.length !== lastLoggedCount) {
+        lastLoggedCount = loadedModules.length;
+        console.log(`[App] Module loading progress: ${loadedModules.length}/${requiredModules.length} loaded`, {
+          loaded: loadedModules,
+          pending: missing,
+        });
       }
+
+      if (loadedModules.length === requiredModules.length) {
+        console.log('[App] All modules loaded successfully:', loadedModules);
+        return true;
+      }
+      return false;
     };
 
     // Check immediately
-    checkModules();
+    if (checkModules()) {
+      resolve({ timedOut: false, missing: [] });
+      return;
+    }
 
     // Set up interval to check periodically
     const interval = setInterval(() => {
-      const allLoaded = requiredModules.every(moduleName => typeof window[moduleName] !== 'undefined');
-      if (allLoaded) {
+      if (checkModules()) {
         clearInterval(interval);
-        resolve();
+        resolve({ timedOut: false, missing: [] });
       }
     }, 100);
 
-    // Timeout after specified time
+    // Timeout after specified time — resolve with a warning instead of rejecting
+    // so the app can continue and show a degraded-mode warning rather than crash
     setTimeout(() => {
       clearInterval(interval);
       const missing = requiredModules.filter(moduleName => typeof window[moduleName] === 'undefined');
-      reject(new Error(`Modules not loaded within ${timeout}ms: ${missing.join(', ')}`));
+      console.warn(`[App] Module load timeout after ${timeout}ms. Failed modules: ${missing.join(', ')}`);
+      resolve({ timedOut: true, missing });
     }, timeout);
   });
 };
@@ -675,7 +690,18 @@ const bootApp = async () => {
 
     // Wait for all modules to load
     console.log('[App] Waiting for modules to load...');
-    await waitForModules();
+    const { timedOut, missing } = await waitForModules();
+
+    if (timedOut) {
+      console.warn('[App] Continuing in degraded mode. Missing modules:', missing);
+      // Show a non-fatal warning toast so the user knows something is off,
+      // but let the app proceed rather than hard-crashing
+      Toast.show(
+        `Some modules are slow to load: ${missing.join(', ')}. Functionality may be limited.`,
+        'warning',
+        8000
+      );
+    }
 
     // Try to restore session
     const hasSession = Auth.loadFromStorage();
@@ -698,33 +724,11 @@ const bootApp = async () => {
       await App.navigate('login');
     }
   } catch (err) {
-    console.error('Boot error:', err);
+    console.error('[App] Boot error:', err);
     loadingScreen.style.display = 'none';
     appEl.style.display = 'flex';
-
-    if (err.message.includes('Modules not loaded')) {
-      // Module loading failed - show error message
-      appEl.innerHTML = `
-<div class="auth-screen page">
-  <div class="auth-card">
-    <div class="auth-logo">
-      <div class="auth-logo-icon">⚠️</div>
-      <h1 class="auth-title">Loading Error</h1>
-      <p class="auth-subtitle">Some app modules failed to load</p>
-    </div>
-    <div style="text-align:center;padding:20px;">
-      <p style="color:#ef4444;margin-bottom:20px;">${err.message}</p>
-      <button class="btn btn-primary" onclick="window.location.reload()">Reload Page</button>
-      <p style="margin-top:16px;font-size:0.8rem;color:#666;">
-        Try clearing your browser cache or using an incognito window.
-      </p>
-    </div>
-  </div>
-</div>`;
-    } else {
-      // Other error - show login screen
-      appEl.innerHTML = Auth.renderLoginScreen();
-    }
+    // Fall back to the login screen for any unexpected boot errors
+    appEl.innerHTML = Auth.renderLoginScreen();
   }
 };
 
