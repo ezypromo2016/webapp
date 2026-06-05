@@ -1,0 +1,13 @@
+{
+  "app": {
+    "name": "CBK Apparel POS",
+    "version": "1.0.16",
+    "last_update": "2024-05-20"
+  },
+  "business": {
+    "name": "CBK Apparel & School Supplies",
+    "address": "Davao de Oro, Philippines",
+    "phone": "09912091886",
+    "email": "contact@cbkapparel.com"
+  }
+}

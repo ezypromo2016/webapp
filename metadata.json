@@ -1,0 +1,11 @@
+{
+  "name": "CBKPOS",
+  "description": "A high-performance Point of Sale system with offline capabilities, sales dashboard, and transaction management.",
+  "requestFramePermissions": [
+    "serial",
+    "usb"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

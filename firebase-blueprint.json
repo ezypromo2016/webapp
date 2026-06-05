@@ -1,0 +1,278 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System users and cashiers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "password": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role", "password"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Inventory products",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "cost": { "type": "number" },
+        "stock": { "type": "integer" },
+        "sku": { "type": "string" }
+      },
+      "required": ["id", "name", "category", "price", "stock"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Product categories",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "BusinessInfo": {
+      "title": "Business Information",
+      "description": "Store branding and metadata",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "logo": { "type": "string" },
+        "tin": { "type": "string" },
+        "vat": { "type": "string" }
+      }
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Sales records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "transactionNumber": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "cashier": { 
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          }
+        },
+        "customer": { 
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "contact": { "type": "string" }
+          }
+        },
+        "paymentMethod": { "type": "string" },
+        "total": { "type": "number" },
+        "items": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      },
+      "required": ["id", "transactionNumber", "total"]
+    },
+    "TransactionItem": {
+      "title": "Transaction Item",
+      "description": "Individual items in a transaction (schema-only, usually stored in items array or subcollection)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "qty": { "type": "integer" },
+        "price": { "type": "number" },
+        "category": { "type": "string" }
+      }
+    },
+    "PrintingRecord": {
+      "title": "Printing Record",
+      "description": "Logging for printing services",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerName": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "quantity": { "type": "integer" },
+        "total": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "customerName", "total"]
+    },
+    "Credit": {
+      "title": "Credit",
+      "description": "Credit loan records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "borrower_id": { "type": "string" },
+        "borrower_name": { "type": "string" },
+        "borrower_address": { "type": "string" },
+        "borrower_contact": { "type": "string" },
+        "comaker_name": { "type": "string" },
+        "comaker_address": { "type": "string" },
+        "comaker_contact": { "type": "string" },
+        "principal_amount": { "type": "number" },
+        "interest_rate": { "type": "number" },
+        "interest_amount": { "type": "number" },
+        "total_amount": { "type": "number" },
+        "paid_amount": { "type": "number" },
+        "balance_amount": { "type": "number" },
+        "payments": { 
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "amount": { "type": "number" },
+              "date": { "type": "string", "format": "date-time" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "notes": { "type": "string" },
+        "status": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "borrower_name", "total_amount", "status"]
+    },
+    "Staff": {
+      "title": "Staff",
+      "description": "Employee information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "contact_number": { "type": "string" },
+        "joined_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Employee time logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "time_in": { "type": "string", "format": "date-time" },
+        "time_out": { "type": "string", "format": "date-time" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "user_id", "time_in", "date"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Store customers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "contact_number": { "type": "string" },
+        "birthdate": { "type": "string" },
+        "suki_number": { "type": "string" },
+        "points": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name"]
+    },
+    "GCashTransaction": {
+      "title": "GCash Transaction",
+      "description": "GCash cash-in, cash-out, and load logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "account_id": { "type": "string" },
+        "customer_name": { "type": "string" },
+        "reference_number": { "type": "string" },
+        "mode": { "type": "string", "enum": ["cash-in", "cash-out", "load"] },
+        "amount": { "type": "number" },
+        "fee": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "complete"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "customer_name", "mode", "amount", "account_id"]
+    },
+    "GCashAccount": {
+      "title": "GCash Account",
+      "description": "Registered GCash account/user names",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "capital": { "type": "number", "description": "The starting or current working capital for this account" },
+        "capital_cashout": { "type": "number", "description": "The starting or current working capital for physical cashouts" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name"]
+    },
+    "Order": {
+      "title": "Quick Order",
+      "description": "Simple order notes or reminders",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "content": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "image_url": { "type": "string" }
+      },
+      "required": ["id", "content"]
+    },
+    "SOSCredit": {
+      "title": "SOS Credit",
+      "description": "SOS Credit applications and releases",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string" },
+        "address": { "type": "string" },
+        "contactNumber": { "type": "string" },
+        "facebook": { "type": "string" },
+        "sketchImage": { "type": "string" },
+        "coMakerName": { "type": "string" },
+        "coMakerAddress": { "type": "string" },
+        "coMakerContact": { "type": "string" },
+        "coMakerFacebook": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "total": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "fullName", "total", "timestamp"]
+    }
+  },
+  "firestore": {
+    "users": { "schema": "User", "description": "Collection of users" },
+    "products": { "schema": "Product", "description": "Collection of inventory items" },
+    "categories": { "schema": "Category", "description": "Collection of product categories" },
+    "business_info": { "schema": "BusinessInfo", "description": "Singleton for business settings" },
+    "transactions": { "schema": "Transaction", "description": "Collection of sales transactions" },
+    "transactions/{transactionId}/items": { "schema": "TransactionItem", "description": "Subcollection of items for a transaction" },
+    "printing_records": { "schema": "PrintingRecord", "description": "Collection of printing service logs" },
+    "credits": { "schema": "Credit", "description": "Collection of credit tracker records" },
+    "staff": { "schema": "Staff", "description": "Collection of employee records" },
+    "attendance": { "schema": "Attendance", "description": "Collection of time logs" },
+    "customers": { "schema": "Customer", "description": "Collection of customer records" },
+    "gcash_transactions": { "schema": "GCashTransaction", "description": "Collection of GCash logs" },
+    "gcash_accounts": { "schema": "GCashAccount", "description": "Collection of GCash account names" },
+    "orders": { "schema": "Order", "description": "Collection of quick order notes" },
+    "sos_credits": { "schema": "SOSCredit", "description": "Collection of SOS credit applications" },
+    "health_check": { "schema": "object", "description": "Connection verification" }
+  }
+}
