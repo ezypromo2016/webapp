@@ -2,12 +2,13 @@
   "name": "cbk-pos-backend",
   "version": "1.0.0",
   "main": "server_2.ts",
+  "type": "module",
   "engines": {
     "node": "18.x"
   },
   "scripts": {
     "build": "echo 'Frontend built separately via Firebase Hosting'",
-    "start": "ts-node server_2.ts"
+    "start": "node --loader ts-node/esm server_2.ts"
   },
   "dependencies": {
     "express": "^4.19.2",
