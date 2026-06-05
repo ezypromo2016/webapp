@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: cbk-pos-backend
+    runtime: node
+    buildCommand: npm install
+    startCommand: npx ts-node server_2.ts
+    envVars:
+      - key: NODE_ENV
+        value: production
