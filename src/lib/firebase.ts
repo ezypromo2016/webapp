@@ -2,7 +2,37 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { initializeFirestore, doc, getDocFromServer, enableIndexedDbPersistence, CACHE_SIZE_UNLIMITED } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import firebaseConfig from "../../firebase-applet-config.json";
+
+// ── SAFE CONFIGURATION LOADING ────────────────────────────────────────────────
+let firebaseConfig: any;
+
+try {
+  // We use Vite's dynamic glob import pattern to search for the asset silently.
+  // This completely stops Vite from crashing during the build phase if the file is missing.
+  const configModules = import.meta.glob("../../firebase-applet-config.json", { eager: true });
+  const configPath = "../../firebase-applet-config.json";
+  
+  if (configModules[configPath]) {
+    firebaseConfig = (configModules[configPath] as any).default || configModules[configPath];
+    console.log("[CONFIG] Successfully imported configuration from local JSON file asset.");
+  } else {
+    throw new Error("File not found in bundle tree context");
+  }
+} catch (e) {
+  console.log("[CONFIG] Configuration JSON file unresolvable. Falling back to Environment Variables context...");
+  
+  // Safe production fallback pulling from your active environment configurations
+  firebaseConfig = {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "cbkapparel-shop",
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    firestoreDatabaseId: "(default)"
+  };
+}
+// ───────────────────────────────────────────────────────────────────────────────
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -11,7 +41,7 @@ export const auth = getAuth(app);
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
   cacheSizeBytes: CACHE_SIZE_UNLIMITED
-}, firebaseConfig.firestoreDatabaseId);
+}, firebaseConfig.firestoreDatabaseId || "(default)");
 
 // Enable persistence for offline capability
 try {
