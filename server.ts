@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import axios from "axios";
+import cors from "cors"; // ✅ IMPORT VERIFIED
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { initializeApp as initializeClientApp } from "firebase/app";
@@ -54,6 +55,16 @@ async function startServer() {
   
   const PORT = process.env.PORT || 3000;
   const isProd = process.env.NODE_ENV === "production";
+
+  // ✅ ACTIVE INTERCEPTOR: Authorized pipeline origins to smash CORS Network Blocks
+  app.use(cors({
+    origin: [
+      "https://cbkpos.web.app",
+      "https://ai-studio-applet-webapp-10d3d.web.app"
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true
+  }));
 
   app.use(express.json());
 
