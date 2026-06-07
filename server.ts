@@ -101,8 +101,8 @@ async function startServer() {
   };
   initDb();
 
-  // ── CREATE BATCH TRANSFER ──────────────────────────────────────────────────
-  app.post("/api/create-batch-transfer", async (req, res) => {
+  // ── CENTRAL TRANSFER CORE REUSABLE CONTROLLER ──────────────────────────────
+  const handleBatchTransferExecution = async (req: express.Request, res: express.Response) => {
     console.log("[TRANSFER] Incoming body:", req.body);
     const requestData = req.body?.data || req.body || {};
 
@@ -246,18 +246,23 @@ async function startServer() {
       if (allSucceeded) {
         return res.json({ success: true, data: resultData });
       } else {
-        return res.status(400).json({ success: false, error: "Transfer rejected by PayMongo", details: resultData });
+        const paymongoFailureReason = finalTransfer?.failure_reason || finalTransfer?.attributes?.failure_reason || "Transfer rejected by PayMongo";
+        return res.status(400).json({ success: false, error: paymongoFailureReason, details: resultData });
       }
 
     } catch (error: any) {
-      res.status(error.response?.status || 500).json({ success: false, error: error.message });
+      // ✅ MODIFIED: Pull structural error details out of nested response fields seamlessly to pass back to front-end forms
+      const internalErrorDetails = 
+        error.response?.data?.errors?.[0]?.detail || 
+        error.response?.data?.error || 
+        error.message;
+      res.status(error.response?.status || 500).json({ success: false, error: internalErrorDetails });
     }
-  });
+  };
 
-  // Alias
-  app.post("/api/create-payout", (req: any, res: any) => {
-    res.redirect(307, "/api/create-batch-transfer");
-  });
+  // ✅ FIX: Map both route paths directly to execution blocks to avoid relative redirect 404 bugs
+  app.post("/api/create-batch-transfer", handleBatchTransferExecution);
+  app.post("/api/create-payout", handleBatchTransferExecution);
 
   // ── DEBUG WALLET ───────────────────────────────────────────────────────────
   app.get("/api/debug-wallet", async (req, res) => {
