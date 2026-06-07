@@ -52,7 +52,6 @@ const inc = increment;
 async function startServer() {
   const app = express();
   
-  // ✅ FIXED PORT BINDING: Dynamically reads Render's port first, fallbacks to 3000
   const PORT = process.env.PORT || 3000;
   const isProd = process.env.NODE_ENV === "production";
 
@@ -358,7 +357,6 @@ async function startServer() {
             createdAt: serverTs()
           });
           batch.update(userRef, { balance: inc(-amount), updatedAt: serverTs() });
-          await db.firestore(); // Wait layout
           await batch.commit();
         } else {
           return res.status(400).json({ success: false, error: "Insufficient balance." });
