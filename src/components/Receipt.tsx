@@ -1,7 +1,25 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { X, AlertCircle, Printer, Usb } from 'lucide-react';
-import { ThermalPrinter } from '../lib/thermalPrinter';
+
+// ── SAFE RUNTIME WORKAROUND FOR THERMAL PRINTER ROUTING ──────────────────────
+let ThermalPrinter: any = null;
+
+try {
+  // Use Vite's dynamic module loader to trace the file without breaking the compiler build
+  const printerModules = import.meta.glob("../lib/thermalPrinter*", { eager: true });
+  const matchedKey = Object.keys(printerModules)[0];
+  
+  if (matchedKey) {
+    ThermalPrinter = (printerModules[matchedKey] as any).ThermalPrinter || (printerModules[matchedKey] as any).default;
+    console.log("[RECEIPT CONFIG] Thermal printer drivers loaded successfully.");
+  } else {
+    throw new Error("Thermal printer hardware drivers missing.");
+  }
+} catch (e) {
+  console.log("[RECEIPT CONFIG] Hardware print engine unavailable. Falling back to native system print layout context...");
+}
+// ───────────────────────────────────────────────────────────────────────────────
 
 interface ReceiptProps {
   txn: any;
@@ -34,7 +52,7 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
       }
 
       // Auto print to authorized USB thermal printer
-      if (printerType === "THERMAL" && 'usb' in navigator) {
+      if (printerType === "THERMAL" && 'usb' in navigator && ThermalPrinter) {
         setTimeout(async () => {
           try {
             const devs = await (navigator as any).usb.getDevices();
@@ -57,6 +75,10 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
   }, [txn, printerType, onPrintDone]);
 
   const handleDirectUSBPrint = async () => {
+    if (!ThermalPrinter) {
+      alert("Direct Hardware Printing Drivers are not compiled into this instance. Please use the 'Web' button to trigger print layouts.");
+      return;
+    }
     try {
       const device = await (navigator as any).usb.requestDevice({ filters: [] });
       const res = await ThermalPrinter.printReceipt(txn, businessInfo, "usb", device);
@@ -71,6 +93,10 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
   };
 
   const handleDirectSerialPrint = async () => {
+    if (!ThermalPrinter) {
+      alert("Direct Hardware Printing Drivers are not compiled into this instance. Please use the 'Web' button to trigger print layouts.");
+      return;
+    }
     try {
       const res = await ThermalPrinter.printReceipt(txn, businessInfo, "serial");
       if (!res.success) {
@@ -160,6 +186,10 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
               </button>
               <button
                 onClick={async () => {
+                   if (!ThermalPrinter) {
+                     alert("Direct Hardware Printing Drivers are not compiled into this instance. Please use the 'Web' button to trigger print layouts.");
+                     return;
+                   }
                    try {
                      const res = await ThermalPrinter.printReceipt(txn, businessInfo, "bluetooth");
                      if (!res.success) {
@@ -202,8 +232,6 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
         </div>
       </div>
 
-
-
       {printerType === 'A4' ? (
       <div className="w-full max-w-[7.5in] print:w-[210mm] print:min-h-[297mm] bg-white print:bg-white flex flex-col items-center justify-start print:mx-auto transition-all duration-500">
         <style dangerouslySetInnerHTML={{ __html: `
@@ -232,7 +260,6 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
               width: 100% !important;
               max-width: 100% !important;
             }
-            /* Row break safety */
             .divide-y > div {
               page-break-inside: avoid !important;
               break-inside: avoid !important;
@@ -242,7 +269,6 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
               break-inside: avoid !important;
               margin-top: 10mm !important;
             }
-            /* Ensure background colors and gradients are printed */
             * {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
@@ -250,7 +276,6 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
           }
         `}} />
         
-        {/* 7x5 Receipt Layout (Auto-growing height) */}
         <div id="print-root" 
           className={`bg-white text-slate-900 shadow-2xl relative overflow-hidden transition-all duration-500 transform ${isReady ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-8 scale-95'}`} 
           style={{ 
@@ -260,19 +285,16 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
             fontFamily: "'Segoe UI', Arial, sans-serif"
           }}
         >
-          {/* Background Watermark */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.02] select-none z-0 text-center">
             <span className="text-[100px] font-black uppercase tracking-tighter -rotate-12">THANK YOU</span>
           </div>
 
-          {/* Tiny top label */}
           <div className="text-center py-1 bg-slate-50 border-b border-slate-100 relative z-10">
             <span className="text-[7.5px] text-slate-400 font-bold tracking-[0.4em] uppercase">
               This is not an Official Receipt · Ref No. {txn.transactionNumber}
             </span>
           </div>
 
-          {/* Premium Blue Header - Thinner */}
           <div className="relative bg-gradient-to-r from-[#1e293b] to-[#334155] text-white overflow-hidden z-10" style={{ height: '70px' }}>
             <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-12 -mt-12" />
             <div className="absolute bottom-0 left-0 w-16 h-16 bg-blue-500/10 rounded-full -ml-8 -mb-8" />
@@ -293,9 +315,7 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
             </div>
           </div>
           
-          {/* Body */}
           <div className="px-8 py-4 relative z-10">
-            {/* Branding Section */}
             <div className="relative flex items-center justify-center mb-5 pb-4 border-b border-slate-100">
               <div className="absolute left-0 top-0">
                 {businessInfo?.logo ? (
@@ -323,7 +343,6 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
               </div>
             </div>
 
-            {/* Metadata Section */}
             <div className="flex justify-between items-start mb-5">
               <div className="text-left">
                 <p className="text-[7.5px] font-black text-slate-300 uppercase tracking-[0.2em] mb-1">Billed To</p>
@@ -347,7 +366,6 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
               </div>
             </div>
 
-            {/* Premium Items Table - Refined Alignment */}
             <div className="mb-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               <div className="grid grid-cols-[3fr_60px_90px_90px] bg-slate-50 border-b border-slate-200 px-6 py-3 text-[9px] font-black uppercase tracking-[0.25em] text-slate-500">
                 <span className="text-left">Description</span>
@@ -380,11 +398,9 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
               </div>
             </div>
 
-            {/* Summary & Signature Section */}
             <div className="flex justify-between items-end gap-10 pt-2 summary-section">
               <div className="flex-1">
                 <div className="flex items-center gapw-10 mb-6">
-                  {/* Payment Details */}
                   <div className="bg-slate-50 rounded-lg px-4 py-2 border border-slate-100 inline-block">
                     <div className="flex items-center gap-4">
                       <div>
@@ -413,7 +429,6 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
                     </div>
                   </div>
 
-                  {/* Signature Line */}
                   <div className="flex-1 max-w-[140px]">
                     <div className="h-8 border-b border-slate-300 w-full" />
                     <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-1 text-center">Authorized Signature</p>
@@ -457,7 +472,6 @@ export default function Receipt({ txn, businessInfo, onPrintDone }: ReceiptProps
             </div>
           </div>
 
-          {/* Decorative Footer - Thinner */}
           <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-gradient-to-r from-blue-600 via-indigo-600 to-slate-900 opacity-80" />
         </div>
       </div>
