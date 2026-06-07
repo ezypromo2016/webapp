@@ -136,7 +136,6 @@ async function startServer() {
       return res.status(500).json({ success: false, error: "PAYMONGO_SECRET_KEY is not configured." });
     }
 
-    // ✅ FIXED: Convert credentials into an explicit, standardized Base64 Basic Authorization header block
     const authStr = Buffer.from(SECRET_KEY + ':').toString('base64');
     const secureHeaders = {
       Authorization: `Basic ${authStr}`,
@@ -153,7 +152,6 @@ async function startServer() {
       }
 
       console.log(`[PAYMONGO] Querying primary default wallet accounts...`);
-      // ✅ FIXED: Passed explicit secure headers array to bypass the authorization check block
       const walletRes = await axios.get(`https://api.paymongo.com/v2/wallets?fields=account`, { headers: secureHeaders });
       const walletData = walletRes.data?.data?.[0]; 
       const sourceAccount = walletData?.account || walletData?.attributes?.account;
@@ -192,15 +190,26 @@ async function startServer() {
       let resultData = response.data?.data;
       let finalTransfer = resultData?.transfers?.[0];
 
-      if (finalTransfer && finalTransfer.status === "pending") {
+      // ✅ FIXED: Unpack attributes object structure safely inside the polling worker thread
+      if (finalTransfer && (finalTransfer.status === "pending" || finalTransfer.attributes?.status === "pending")) {
         let attempts = 0;
         while (attempts < 12) {
           await new Promise((res) => setTimeout(res, 1500));
           try {
+            console.log(`[POLL] Checking status for transfer ${finalTransfer.id}, attempt ${attempts + 1}...`);
             const pollRes = await axios.get(`https://api.paymongo.com/v2/transfers/${finalTransfer.id}`, { headers: secureHeaders });
-            const status = pollRes.data?.data?.status;
-            finalTransfer = pollRes.data?.data;
-            if (status === "failed" || status === "rejected" || status === "completed" || status === "succeeded") break;
+            
+            const rawTx = pollRes.data?.data;
+            const currentStatus = rawTx?.status || rawTx?.attributes?.status; // Check both root and nested attribute layers
+            
+            if (rawTx) {
+              finalTransfer = rawTx;
+            }
+
+            if (currentStatus === "failed" || currentStatus === "rejected" || currentStatus === "completed" || currentStatus === "succeeded") {
+              console.log(`[POLL] Terminal status reached: ${currentStatus}`);
+              break; // Instantly exit the hanging thread
+            }
           } catch (e: any) {
              console.log(`[PAYMONGO] Poll error:`, e.message);
           }
@@ -208,10 +217,12 @@ async function startServer() {
         }
       }
 
-      const allSucceeded = finalTransfer?.status === "completed" || finalTransfer?.status === "succeeded" || finalTransfer?.status === "pending";
+      // ✅ FIXED: Normalize status mapping checks to protect wallet state reductions
+      const finalStatus = finalTransfer?.status || finalTransfer?.attributes?.status;
+      const allSucceeded = finalStatus === "completed" || finalStatus === "succeeded" || finalStatus === "pending";
 
       if (senderId && resultData) {
-        const txStatus = allSucceeded ? "completed" : "failed";
+        const txStatus = (finalStatus === "failed" || finalStatus === "rejected") ? "failed" : allSucceeded ? "completed" : "pending";
         try {
            await addDoc(collection(db, "transactions"), {
             senderId,
@@ -236,7 +247,7 @@ async function startServer() {
           console.error("[FIRESTORE] Transaction log failed:", dbErr.message);
         }
 
-        if (allSucceeded) {
+        if (txStatus === "completed" || txStatus === "pending") {
           try {
             await updateDoc(doc(db, "users", senderId), {
               balance: inc(-totalAmountPesos),
@@ -313,126 +324,4 @@ async function startServer() {
     const headers = { Authorization: `Basic ${authStr}`, Accept: "application/json" };
 
     try {
-      const response = await axios.get("https://api.paymongo.com/v2/wallets?fields=balance", { headers });
-      const walletsData = response.data?.data || [];
-      let balanceCentavos = 0;
-
-      if (Array.isArray(walletsData) && walletsData.length > 0) {
-         balanceCentavos = walletsData[0]?.balance?.available || walletsData[0]?.attributes?.balance?.available || 0;
-      }
-
-      const balancePesos = Number(balanceCentavos) / 100;
-      const responseData = { balance: balancePesos, balanceCentavos, currency: "PHP" };
-      
-      paymongoBalanceCache = { data: responseData as any, timestamp: Date.now() };
-      res.json(responseData);
-
-    } catch (error: any) {
-      const status = error.response?.status;
-      if (status === 429 && paymongoBalanceCache.data) return res.json(paymongoBalanceCache.data);
-      
-      res.status(status || 500).json({ error: "Failed to fetch balance", details: error.message });
-    }
-  });
-
-  // ── WEBHOOK ────────────────────────────────────────────────────────────────
-  app.post("/api/webhook", async (req, res) => {
-    const event = req.body?.data;
-    if (event?.attributes?.type === "link.payment.paid") {
-      const payment = event.attributes?.data;
-      const linkId  = payment?.attributes?.link_id;
-      if (linkId) {
-        const q = query(collection(db, "transactions"), where("paymongoLinkId", "==", linkId), where("status", "==", "pending"), limit(1));
-        const txQuery = await getDocs(q);
-        if (!txQuery.empty) {
-          const txDoc = txQuery.docs[0];
-          const txData = txDoc.data();
-          if (txData) {
-            const batch = writeBatch(db);
-            batch.update(txDoc.ref, { status: "completed", updatedAt: serverTs() });
-            batch.update(doc(db, "users", txData.recipientId), { balance: inc(txData.amount / 100), updatedAt: serverTs() });
-            await batch.commit();
-          }
-        }
-      }
-    }
-    res.json({ received: true });
-  });
-
-  // ── AIRTIME TOP-UP ─────────────────────────────────────────────────────────
-  app.post("/api/airtime/topup", async (req, res) => {
-    const { phoneNumber, amount, telecomNetwork, userId } = req.body;
-    try {
-      if (userId) {
-        const userRef  = doc(db, "users", userId);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists() && (userSnap.data().balance || 0) >= amount) {
-          const batch = writeBatch(db);
-          await addDoc(collection(db, "transactions"), {
-            senderId: userId, recipientId: "aggregator",
-            amount: amount * 100, currency: "PHP", status: "completed", type: "eload",
-            metadata: { phone: phoneNumber, network: telecomNetwork, amount },
-            createdAt: serverTs()
-          });
-          batch.update(userRef, { balance: inc(-amount), updatedAt: serverTs() });
-          await batch.commit();
-        } else {
-          return res.status(400).json({ success: false, error: "Insufficient balance." });
-        }
-      }
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
-
-  // ── SYNC BALANCE ───────────────────────────────────────────────────────────
-  app.post("/api/sync-balance", async (req, res) => {
-    const { userId } = req.body;
-    const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
-    if (!SECRET_KEY) return res.status(500).json({ error: "PAYMONGO_SECRET_KEY not configured." });
-    try {
-      const authStr = Buffer.from(SECRET_KEY + ':').toString('base64');
-      const txQueryResult = await getDocs(query(collection(db, "transactions"), where("recipientId", "==", userId)));
-      for (const txDoc of txQueryResult.docs) {
-        const txData = txDoc.data();
-        if (txData.status !== "pending" || !txData.paymongoLinkId) continue;
-        const response = await axios.get(`https://api.paymongo.com/v1/links/${txData.paymongoLinkId}`, { headers: { Authorization: `Basic ${authStr}` } });
-        const payments = response.data?.data?.attributes?.payments || [];
-        if (Array.isArray(payments) && payments.some((p: any) => p?.data?.attributes?.status === "paid")) {
-          const batch = writeBatch(db);
-          batch.update(txDoc.ref, { status: "completed", updatedAt: serverTs() });
-          batch.update(doc(db, "users", userId), { balance: inc(txData.amount / 100), updatedAt: serverTs() });
-          await batch.commit();
-        }
-      }
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: "Failed to sync balance" });
-    }
-  });
-
-  // ── STATIC / VITE ──────────────────────────────────────────────────────────
-  if (!isProd) {
-    const vite = await createViteServer({ server: { middlewareMode: true, hmr: { overlay: false } }, appType: "spa" });
-    app.use(vite.middlewares);
-    app.get("*", async (req, res, next) => {
-      try {
-        let template = fs.readFileSync(path.resolve(process.cwd(), "index.html"), "utf-8");
-        template     = await vite.transformIndexHtml(req.originalUrl, template);
-        res.status(200).set({ "Content-Type": "text/html" }).end(template);
-      } catch (e: any) {
-        vite.ssrFixStacktrace(e);
-        next(e);
-      }
-    });
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
-  }
-}
-
-startServer().catch(err => {
-  console.error("CRITICAL: Server failed to start:", err);
-});
+      const response = await axios.get("
