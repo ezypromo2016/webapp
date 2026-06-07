@@ -136,9 +136,12 @@ async function startServer() {
       return res.status(500).json({ success: false, error: "PAYMONGO_SECRET_KEY is not configured." });
     }
 
-    const paymongoAuth = {
-      auth:    { username: SECRET_KEY, password: "" },
-      headers: { "Content-Type": "application/json", "Accept": "application/json" }
+    // ✅ FIXED: Convert credentials into an explicit, standardized Base64 Basic Authorization header block
+    const authStr = Buffer.from(SECRET_KEY + ':').toString('base64');
+    const secureHeaders = {
+      Authorization: `Basic ${authStr}`,
+      "Content-Type": "application/json",
+      Accept: "application/json"
     };
 
     try {
@@ -149,10 +152,10 @@ async function startServer() {
         }
       }
 
-      // ✅ FIXED: Shifted endpoints from explicit resource lookup to default query parameters to drop the "wallet not found" block
-      console.log(`[PAYMONGO] Querying primary activated default wallet metrics...`);
-      const walletRes = await axios.get(`https://api.paymongo.com/v2/wallets?fields=account`, paymongoAuth);
-      const walletData = walletRes.data?.data?.[0]; // Target the primary activated index block
+      console.log(`[PAYMONGO] Querying primary default wallet accounts...`);
+      // ✅ FIXED: Passed explicit secure headers array to bypass the authorization check block
+      const walletRes = await axios.get(`https://api.paymongo.com/v2/wallets?fields=account`, { headers: secureHeaders });
+      const walletData = walletRes.data?.data?.[0]; 
       const sourceAccount = walletData?.account || walletData?.attributes?.account;
       const sourceNumber = sourceAccount?.account_number || WALLET_ID;
       const sourceName = sourceAccount?.account_name || "PayMongo Wallet";
@@ -184,7 +187,8 @@ async function startServer() {
         ]
       };
 
-      const response = await axios.post("https://api.paymongo.com/v2/batch_transfers", payload, paymongoAuth);
+      console.log(`[PAYMONGO] Executing batch transfer payout payload...`);
+      const response = await axios.post("https://api.paymongo.com/v2/batch_transfers", payload, { headers: secureHeaders });
       let resultData = response.data?.data;
       let finalTransfer = resultData?.transfers?.[0];
 
@@ -193,7 +197,7 @@ async function startServer() {
         while (attempts < 12) {
           await new Promise((res) => setTimeout(res, 1500));
           try {
-            const pollRes = await axios.get(`https://api.paymongo.com/v2/transfers/${finalTransfer.id}`, paymongoAuth);
+            const pollRes = await axios.get(`https://api.paymongo.com/v2/transfers/${finalTransfer.id}`, { headers: secureHeaders });
             const status = pollRes.data?.data?.status;
             finalTransfer = pollRes.data?.data;
             if (status === "failed" || status === "rejected" || status === "completed" || status === "succeeded") break;
@@ -260,7 +264,6 @@ async function startServer() {
     }
   };
 
-  // Map endpoints to execution layers
   app.post("/api/create-batch-transfer", handleBatchTransferExecution);
   app.post("/api/create-payout", handleBatchTransferExecution);
 
@@ -269,10 +272,9 @@ async function startServer() {
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
     if (!SECRET_KEY) return res.status(500).json({ error: "PAYMONGO_SECRET_KEY not set." });
     try {
-      // ✅ FIXED: Swapped query path here to map array collections safely
+      const authStr = Buffer.from(SECRET_KEY + ':').toString('base64');
       const r = await axios.get(`https://api.paymongo.com/v2/wallets`, {
-        auth: { username: SECRET_KEY, password: "" },
-        headers: { Accept: "application/json" }
+        headers: { Authorization: `Basic ${authStr}`, Accept: "application/json" }
       });
       res.json({ full_response: r.data });
     } catch (err: any) {
@@ -285,9 +287,9 @@ async function startServer() {
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
     if (!SECRET_KEY) return res.status(500).json({ error: "PAYMONGO_SECRET_KEY not configured." });
     try {
+      const authStr = Buffer.from(SECRET_KEY + ':').toString('base64');
       const response = await axios.get(`https://api.paymongo.com/v2/transfers/${req.params.id}`, {
-        auth: { username: SECRET_KEY, password: "" },
-        headers: { Accept: "application/json" }
+        headers: { Authorization: `Basic ${authStr}`, Accept: "application/json" }
       });
       res.json(response.data);
     } catch (e: any) {
@@ -390,11 +392,12 @@ async function startServer() {
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
     if (!SECRET_KEY) return res.status(500).json({ error: "PAYMONGO_SECRET_KEY not configured." });
     try {
+      const authStr = Buffer.from(SECRET_KEY + ':').toString('base64');
       const txQueryResult = await getDocs(query(collection(db, "transactions"), where("recipientId", "==", userId)));
       for (const txDoc of txQueryResult.docs) {
         const txData = txDoc.data();
         if (txData.status !== "pending" || !txData.paymongoLinkId) continue;
-        const response = await axios.get(`https://api.paymongo.com/v1/links/${txData.paymongoLinkId}`, { auth: { username: SECRET_KEY, password: "" } });
+        const response = await axios.get(`https://api.paymongo.com/v1/links/${txData.paymongoLinkId}`, { headers: { Authorization: `Basic ${authStr}` } });
         const payments = response.data?.data?.attributes?.payments || [];
         if (Array.isArray(payments) && payments.some((p: any) => p?.data?.attributes?.status === "paid")) {
           const batch = writeBatch(db);
