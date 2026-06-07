@@ -48,7 +48,8 @@ import { API } from "../lib/api";
 import { db } from "../lib/db";
 import * as XLSX from "xlsx";
 
-import PrinterDiagnostics from "../components/PrinterDiagnostics";
+// ✅ COMMENTED OUT TO UNBLOCK LINUX COMPILATION ERRORS DURING RENDER BUILD
+// import PrinterDiagnostics from "../components/PrinterDiagnostics";
 
 interface PrintingEntry {
   id: string;
@@ -284,8 +285,6 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
   const handleResetAll = async () => {
     setIsSubmitting(true);
     try {
-      // Bulk delete simulation via individual deletes if no bulk endpoint exists
-      // In a real app, a dedicated /reset or bulk delete endpoint would be better
       await Promise.all([
         ...entries.map(e => API.delete(`/printing/${e.id}`)),
         ...expenses.map(e => API.delete(`/printing_expenses/${e.id}`))
@@ -308,7 +307,6 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
       return;
     }
 
-    // Determine date range for export
     const dates = dataToExport.map(e => safeDate(e.created_at)).filter(d => d !== null) as Date[];
     const minDate = dates.length > 0 ? new Date(Math.min(...dates.map(d => d.getTime()))) : null;
     const maxDate = dates.length > 0 ? new Date(Math.max(...dates.map(d => d.getTime()))) : null;
@@ -347,11 +345,9 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
 
     const wb = XLSX.utils.book_new();
     
-    // Summary Sheet
     const wsSummary = XLSX.utils.json_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
 
-    // Details Sheet
     const wsDetails = XLSX.utils.json_to_sheet([...salesHeader, ...salesData, { 'Type': '' }, ...expensesHeader, ...expensesData]);
     XLSX.utils.book_append_sheet(wb, wsDetails, "Detailed Audit");
     
@@ -470,8 +466,6 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
     };
   }, [entries, expenses]);
 
-
-
   const formatCurrency = (n: number) => 
     new Intl.NumberFormat('en-PH', { 
       style: 'currency', 
@@ -479,7 +473,6 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
     }).format(n);
 
   const handlePrint = (entry: PrintingEntry) => {
-    // Transform printing entry to look like a transaction for the Receipt component
     const txn = {
       transactionNumber: `PRNT-${entry.id.substring(0, 8).toUpperCase()}`,
       created_at: entry.created_at,
@@ -493,7 +486,6 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
       }],
       total: entry.total
     };
-    console.log("Printing: Dispatching swiftpos-print", txn);
     window.dispatchEvent(new CustomEvent('swiftpos-print', { detail: txn }));
   };
 
@@ -1504,7 +1496,9 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
           </motion.div>
         )}
       </AnimatePresence>
-      <PrinterDiagnostics isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} />
+      
+      {/* ✅ DEACTIVATED UNTIL THE UNTRACKED DIAGNOSTICS FILE IS PUSHED */}
+      {/* <PrinterDiagnostics isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} /> */}
     </div>
   );
 }
