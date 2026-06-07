@@ -339,14 +339,14 @@ export default function GCashTracker({ navigate, currentPage }: { navigate: (pag
       {/* Sidebar - Mobile Backdrop */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden" 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden" 
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar - consistent with dashboard */}
       <aside className={`
-        fixed inset-y-0 left-0 w-64 bg-white/80 backdrop-blur-xl border-r border-slate-200 z-50 transition-transform md:translate-x-0 md:static
+        fixed inset-y-0 left-0 w-64 bg-white/80 backdrop-blur-xl border-r border-slate-200 z-50 transition-transform lg:translate-x-0 lg:static
         dark:bg-[#111218]/80 dark:border-white/5
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         flex flex-col
@@ -510,7 +510,7 @@ export default function GCashTracker({ navigate, currentPage }: { navigate: (pag
       <main className="flex-1 overflow-y-auto max-h-screen scrollbar-hide relative z-10 min-w-0">
         <header className="sticky top-0 z-30 bg-white/70 dark:bg-[#0a0a0f]/70 backdrop-blur-xl border-b border-slate-200 dark:border-white/5 p-4 lg:p-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button className="md:hidden p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg text-slate-500" onClick={() => setSidebarOpen(true)}>
+            <button className="lg:hidden p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg text-slate-500" onClick={() => setSidebarOpen(true)}>
               <Menu className="w-6 h-6" />
             </button>
             <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-indigo-600">GCash Ledger</h2>
@@ -568,7 +568,7 @@ export default function GCashTracker({ navigate, currentPage }: { navigate: (pag
 
           {/* Dynamic Mobile Switcher Tooltip */}
           {activeAccount && (
-            <div className="md:hidden animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="lg:hidden animate-in fade-in slide-in-from-top-2 duration-300">
                <div className="bg-white dark:bg-[#15161d] p-4 rounded-2xl border border-slate-200 dark:border-white/5 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-[10px] font-black">

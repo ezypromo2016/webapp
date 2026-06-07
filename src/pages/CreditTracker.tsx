@@ -726,7 +726,7 @@ export default function CreditTracker({ navigate, currentPage, verifiedBorrowerI
 
         <div className="p-4 lg:p-8 max-w-[1400px] mx-auto space-y-6 md:space-y-8">
           {/* Mobile Search Bar - Visible only on mobile */}
-          <div className="md:hidden">
+          <div className="lg:hidden">
             <div className="relative group">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
               <input 

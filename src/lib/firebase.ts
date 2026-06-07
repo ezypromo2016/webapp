@@ -33,12 +33,12 @@ async function testConnection() {
   if (!navigator.onLine) return;
   
   try {
-    // Attempt a lightweight server check
     await getDocFromServer(doc(db, '_health_', 'check'));
   } catch (error: any) {
-    // Only log if it's a persistent config error, ignore transient network failures
     if (error?.code === 'permission-denied') {
       console.warn("Firestore access restricted (Permissions). This is normal for guests.");
+    } else if (error?.code === 'unavailable' || String(error).includes('offline')) {
+      console.warn("Firestore running in offline mode. Connection unavailable.");
     }
   }
 }

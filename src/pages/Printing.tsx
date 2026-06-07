@@ -48,6 +48,8 @@ import { API } from "../lib/api";
 import { db } from "../lib/db";
 import * as XLSX from "xlsx";
 
+import PrinterDiagnostics from "../components/PrinterDiagnostics";
+
 interface PrintingEntry {
   id: string;
   description: string;
@@ -89,6 +91,7 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [search, setSearch] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -641,6 +644,14 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
               >
                 <FileSpreadsheet className="w-4 h-4" /> 
                 <span className="hidden sm:inline">Export</span>
+              </button>
+              <button 
+                onClick={() => setShowDiagnostics(true)}
+                className="flex items-center justify-center gap-2 px-4 md:px-5 py-2.5 md:py-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl md:rounded-[1.25rem] transition-all font-black text-[9px] md:text-[10px] uppercase tracking-widest text-slate-600 dark:bg-white/5 dark:border-white/5 dark:text-slate-500 dark:hover:text-white"
+                title="Printer Diagnostics"
+              >
+                <Printer className="w-4 h-4" /> 
+                <span className="hidden sm:inline">Diagnostics</span>
               </button>
               <button 
                 onClick={() => setShowModal(true)}
@@ -1493,6 +1504,7 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
           </motion.div>
         )}
       </AnimatePresence>
+      <PrinterDiagnostics isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} />
     </div>
   );
 }

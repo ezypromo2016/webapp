@@ -129,14 +129,15 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
     setLoadingPaymongo(true);
     setPaymongoError(null);
     try {
-      const response = await axios.get("/api/paymongo-balance");
+      const response = await API.getPayMongoBalance();
+      if (response.error) throw new Error(response.error);
       
-      setPaymongoBalance(response.data.balance || 0);
+      setPaymongoBalance(response.data?.balance || 0);
       setPaymongoPendingBalance(0);
     } catch (error: any) {
       console.error("Dashboard: PayMongo Balance Error", error);
       setPaymongoBalance(null);
-      setPaymongoError(error.response?.data?.error || error.message || "Failed to load balance");
+      setPaymongoError(error.message || "Failed to load balance");
     } finally {
       setLoadingPaymongo(false);
     }
@@ -281,14 +282,14 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
       {/* Sidebar - Mobile Backdrop */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden" 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden" 
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 w-64 bg-white/80 backdrop-blur-xl border-r border-slate-200 z-50 transition-transform md:translate-x-0 md:static
+        fixed inset-y-0 left-0 w-64 bg-white/80 backdrop-blur-xl border-r border-slate-200 z-50 transition-transform lg:translate-x-0 lg:static
         dark:bg-[#111218]/80 dark:border-white/5
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         flex flex-col
@@ -382,7 +383,7 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
         {/* Top Header */}
         <header className="sticky top-0 z-30 bg-white/70 dark:bg-[#0a0a0f]/70 backdrop-blur-xl border-b border-slate-200 dark:border-white/5 p-4 lg:p-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button className="md:hidden p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg text-slate-500" onClick={() => setSidebarOpen(true)}>
+            <button className="lg:hidden p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg text-slate-500" onClick={() => setSidebarOpen(true)}>
               <Menu className="w-6 h-6" />
             </button>
             <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">SALES DASHBOARD</h2>

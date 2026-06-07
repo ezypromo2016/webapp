@@ -253,7 +253,7 @@ export default function Transactions({ navigate, currentPage }: { navigate: (pag
 
       const mayPrinting = printing.filter(p => {
         const d = safeDate(p.created_at || p.createdAt);
-        return d && d.getMonth() === lastMonth && d.getFullYear() === lastYear;
+        return d && d.getMonth() === lastMonth && d.getFullYear() === lastYear && p.status !== 'voided';
       });
 
       const mayOrderExpenses = orderExpenses.filter((o: any) => {
@@ -392,12 +392,12 @@ export default function Transactions({ navigate, currentPage }: { navigate: (pag
     <div className="min-h-screen bg-[#f8f9fa] dark:bg-[#0a0a0f] text-slate-900 dark:text-slate-200 flex transition-colors duration-300 font-sans">
       {/* Sidebar Overlay */}
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
       {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 w-64 bg-white/80 backdrop-blur-xl border-r border-slate-200 z-50 transition-transform md:translate-x-0 md:static
+        fixed inset-y-0 left-0 w-64 bg-white/80 backdrop-blur-xl border-r border-slate-200 z-50 transition-transform lg:translate-x-0 lg:static
         dark:bg-[#111218]/80 dark:border-white/5
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         flex flex-col
@@ -754,7 +754,7 @@ export default function Transactions({ navigate, currentPage }: { navigate: (pag
 
         <header className="sticky top-0 z-30 bg-white/70 dark:bg-[#0a0a0f]/70 backdrop-blur-xl border-b border-slate-200 dark:border-white/5 p-4 lg:p-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button className="md:hidden p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg text-slate-500" onClick={() => setSidebarOpen(true)}>
+            <button className="lg:hidden p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg text-slate-500" onClick={() => setSidebarOpen(true)}>
               <Menu className="w-6 h-6" />
             </button>
             <div>
@@ -1025,6 +1025,13 @@ export default function Transactions({ navigate, currentPage }: { navigate: (pag
                     </td>
                     <td className="px-4 md:px-6 py-3 md:py-4 text-right">
                       <div className="flex items-center justify-end gap-1.5 md:gap-2">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handlePrint(txn); }}
+                          className="p-2 md:p-2.5 bg-slate-100 hover:bg-emerald-500/10 text-slate-400 hover:text-emerald-500 rounded-lg md:rounded-xl transition-all dark:bg-white/5 dark:hover:bg-emerald-500/10"
+                          title="Print Receipt"
+                        >
+                          <Printer className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                        </button>
                         {isAdmin && txn.status !== 'voided' && !txn.queued && (
                           <button 
     onClick={(e) => { e.stopPropagation(); handleVoid(txn._id || txn.id, txn.transactionNumber); }}

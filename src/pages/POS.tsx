@@ -412,6 +412,8 @@ export default function POS({ navigate, currentPage }: { navigate: (page: any) =
       }
 
       setLastTxn(res.data);
+      // Automatically trigger receipt print processing
+      handlePrint(res.data);
       setCart([]);
       setSukiNumber("");
       setLessAmount("");
@@ -429,12 +431,12 @@ export default function POS({ navigate, currentPage }: { navigate: (page: any) =
     <div className="flex h-screen bg-[#f8f9fa] dark:bg-[#0a0a0f] text-slate-900 dark:text-slate-200 overflow-hidden font-sans transition-colors duration-300">
       {/* Sidebar Overlay */}
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
       {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 w-64 bg-white/80 backdrop-blur-xl border-r border-slate-200 z-50 transition-transform md:translate-x-0 md:static
+        fixed inset-y-0 left-0 w-64 bg-white/80 backdrop-blur-xl border-r border-slate-200 z-50 transition-transform lg:translate-x-0 lg:static
         dark:bg-[#111218]/80 dark:border-white/5
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         flex flex-col flex-shrink-0
@@ -549,18 +551,18 @@ export default function POS({ navigate, currentPage }: { navigate: (page: any) =
       </div>
 
       {/* Left: Product Selection */}
-      <div className={`flex-1 flex flex-col min-w-0 border-r border-white/5 transition-all duration-300 dark:border-white/5 light:border-slate-200 ${showCart ? 'hidden lg:flex' : 'flex'}`}>
+      <div className={`flex-1 flex flex-col min-w-0 border-r border-white/5 transition-all duration-300 dark:border-white/5 light:border-slate-200 ${showCart ? 'hidden md:flex' : 'flex'}`}>
         {/* Header */}
         <header className="p-3 md:p-4 lg:p-5 bg-white/70 dark:bg-[#111218]/70 backdrop-blur-xl border-b border-slate-200 dark:border-white/5 flex items-center justify-between gap-3 sticky top-0 z-30">
           <div className="flex items-center gap-2 md:gap-3">
             <button 
               onClick={() => setSidebarOpen(true)}
-              className="md:hidden p-2 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors dark:hover:bg-white/5 dark:text-slate-400"
+              className="lg:hidden p-2 hover:bg-slate-100 rounded-xl text-slate-500 transition-colors dark:hover:bg-white/5 dark:text-slate-400"
             >
               <Menu className="w-6 h-6" />
             </button>
             <h1 className="text-lg md:text-xl font-black text-slate-900 hidden sm:block uppercase tracking-tight dark:text-white">Product LIST</h1>
-            <div className="hidden min-[400px]:block md:hidden">
+            <div className="hidden min-[400px]:block lg:hidden">
                <span className="text-lg font-black tracking-tighter text-slate-900 dark:text-white uppercase leading-none">CBK<span className="text-indigo-600">POS</span></span>
             </div>
           </div>
@@ -751,11 +753,11 @@ export default function POS({ navigate, currentPage }: { navigate: (page: any) =
 
       {/* Right: Cart & Checkout */}
       <div className={`
-        ${showCart ? 'fixed inset-0 z-[60] flex' : 'hidden'} lg:static lg:flex lg:w-[380px] xl:w-[420px] flex-col bg-white/95 backdrop-blur-xl border-l border-slate-200 dark:bg-[#111218]/95 dark:border-white/5
+        ${showCart ? 'fixed inset-0 z-[60] flex' : 'hidden'} md:static md:flex md:w-[320px] lg:w-[380px] xl:w-[420px] flex-col bg-white/95 backdrop-blur-xl border-l border-slate-200 dark:bg-[#111218]/95 dark:border-white/5
       `}>
         <header className="p-4 lg:p-6 border-b border-slate-100 flex items-center justify-between dark:border-white/5 sticky top-0 bg-white dark:bg-[#111218] z-30">
           <div className="flex items-center gap-3">
-            <button onClick={() => setShowCart(false)} className="lg:hidden p-2 hover:bg-slate-100 rounded-xl dark:hover:bg-white/5">
+            <button onClick={() => setShowCart(false)} className="md:hidden p-2 hover:bg-slate-100 rounded-xl dark:hover:bg-white/5">
               <X className="w-5 h-5 text-slate-500" />
             </button>
             <div className="flex items-center gap-2 md:gap-3">
@@ -818,8 +820,8 @@ export default function POS({ navigate, currentPage }: { navigate: (page: any) =
           )}
         </div>
 
-        <div className="p-4 md:p-6 bg-slate-50 border-t border-slate-200 dark:bg-[#15161d] dark:border-white/5">
-          <div className="space-y-2.5 mb-6 md:mb-8">
+        <div className="p-3 md:p-6 bg-slate-50 border-t border-slate-200 dark:bg-[#15161d] dark:border-white/5 flex-shrink-0 overflow-y-auto max-h-[50vh] md:max-h-none">
+          <div className="space-y-2 mb-4 md:mb-6">
             <div className="flex justify-between text-[10px] md:text-[11px] font-black uppercase tracking-[0.2em]">
               <span className="text-slate-400">Net total</span>
               <span className="text-slate-900 dark:text-white">₱{subtotal.toLocaleString()}</span>

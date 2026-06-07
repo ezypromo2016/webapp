@@ -17,6 +17,7 @@ import {
   increment
 } from "firebase/firestore";
 import { db as firestore, auth } from "./firebase";
+import axios from "axios";
 
 import { handleFirestoreError, OperationType } from "./firestore-errors";
 
@@ -456,16 +457,19 @@ export const API = {
         // Include SOS credits in calculations if status is completed
         const completedSOS = sosCredits.filter(s => s.paymentStatus === 'completed' && s.status !== 'voided');
 
-        const todayTxns = txns.filter(d => d.created_at?.startsWith(todayStr));
-        const todayPrinting = printing.filter(d => d.created_at?.startsWith(todayStr));
+        const activeTxns = txns.filter(t => t.status !== 'voided');
+        const activePrinting = printing.filter(p => p.status !== 'voided');
+
+        const todayTxns = activeTxns.filter(d => d.created_at?.startsWith(todayStr));
+        const todayPrinting = activePrinting.filter(d => d.created_at?.startsWith(todayStr));
         const todaySOS = completedSOS.filter(s => s.completedAt?.startsWith(todayStr) || (s.paymentStatus === 'completed' && s.timestamp?.startsWith(todayStr)));
 
-        const monthlyTxns = txns.filter(d => {
+        const monthlyTxns = activeTxns.filter(d => {
           if (!d.created_at) return false;
           const date = new Date(d.created_at);
           return date.getFullYear() === currentYear && date.getMonth() === currentMonth;
         });
-        const monthlyPrinting = printing.filter(d => {
+        const monthlyPrinting = activePrinting.filter(d => {
           if (!d.created_at) return false;
           const date = new Date(d.created_at);
           return date.getFullYear() === currentYear && date.getMonth() === currentMonth;
@@ -500,15 +504,15 @@ export const API = {
               printingSales: monthlyPrinting.reduce((acc, d) => acc + (d.total || 0), 0)
             },
             allTime: {
-              totalTransactions: txns.length + completedSOS.length,
-              totalProfit: calculateProfit(txns) + calculateProfit(completedSOS),
-              printingSales: printing.reduce((acc, d) => acc + (d.total || 0), 0)
+              totalTransactions: activeTxns.length + completedSOS.length,
+              totalProfit: calculateProfit(activeTxns) + calculateProfit(completedSOS),
+              printingSales: activePrinting.reduce((acc, d) => acc + (d.total || 0), 0)
             },
             inventory: {
               lowStockCount: products.filter((p: any) => (p.stock || 0) < 10 && (p.stock || 0) > 0).length,
               outOfStockCount: products.filter((p: any) => (p.stock || 0) <= 0).length
             },
-            recentTransactions: [...txns, ...completedSOS].sort((a, b) => 
+            recentTransactions: [...activeTxns, ...completedSOS].sort((a, b) => 
               (b.completedAt || b.created_at || b.timestamp || "").localeCompare(a.completedAt || a.created_at || a.timestamp || "")
             ).slice(0, 10),
             topProducts: []
@@ -549,11 +553,13 @@ export const API = {
         };
 
         txns.forEach(data => {
+          if (data.status === 'voided') return;
           const dateStr = safeDateStr(data.created_at) || safeDateStr(data.createdAt);
           if (dateStr && chartData[dateStr]) chartData[dateStr].total += (data.total || 0);
         });
 
         printing.forEach(data => {
+          if (data.status === 'voided') return;
           const dateStr = safeDateStr(data.created_at);
           if (dateStr && chartData[dateStr]) chartData[dateStr].printing += (data.total || 0);
         });
@@ -583,6 +589,7 @@ export const API = {
 
         const breakdown: Record<string, number> = {};
         txns.forEach(data => {
+          if (data.status === 'voided') return;
           const method = (data.paymentMethod || "CASH").toLowerCase();
           breakdown[method] = (breakdown[method] || 0) + (data.total || 0);
         });
@@ -623,7 +630,7 @@ export const API = {
           });
         };
 
-        processItems(txns);
+        processItems(txns.filter(t => t.status !== 'voided'));
         processItems(sosCredits.filter(s => s.paymentStatus === 'completed' && s.status !== 'voided'));
 
         result = { data: Object.entries(catSales).map(([name, value]) => ({ name, value })) };
@@ -697,6 +704,16 @@ export const API = {
     } catch (err: any) {
       console.error("API Get General Failure:", err);
       return { data: [], error: err.message };
+    }
+  },
+
+  async getPayMongoBalance() {
+    try {
+      const response = await axios.get("/api/paymongo-balance");
+      return { data: response.data };
+    } catch (err: any) {
+      console.error("API Get PayMongo Balance Failure:", err);
+      return { error: err.response?.data?.error || err.message, data: null };
     }
   },
 
