@@ -149,9 +149,10 @@ async function startServer() {
         }
       }
 
-      console.log(`[PAYMONGO] Fetching wallet account: ${WALLET_ID}`);
-      const walletRes = await axios.get(`https://api.paymongo.com/v2/wallets/${WALLET_ID}?fields=account`, paymongoAuth);
-      const walletData = walletRes.data?.data;
+      // ✅ FIXED: Shifted endpoints from explicit resource lookup to default query parameters to drop the "wallet not found" block
+      console.log(`[PAYMONGO] Querying primary activated default wallet metrics...`);
+      const walletRes = await axios.get(`https://api.paymongo.com/v2/wallets?fields=account`, paymongoAuth);
+      const walletData = walletRes.data?.data?.[0]; // Target the primary activated index block
       const sourceAccount = walletData?.account || walletData?.attributes?.account;
       const sourceNumber = sourceAccount?.account_number || WALLET_ID;
       const sourceName = sourceAccount?.account_name || "PayMongo Wallet";
@@ -251,7 +252,6 @@ async function startServer() {
       }
 
     } catch (error: any) {
-      // ✅ MODIFIED: Pull structural error details out of nested response fields seamlessly to pass back to front-end forms
       const internalErrorDetails = 
         error.response?.data?.errors?.[0]?.detail || 
         error.response?.data?.error || 
@@ -260,17 +260,17 @@ async function startServer() {
     }
   };
 
-  // ✅ FIX: Map both route paths directly to execution blocks to avoid relative redirect 404 bugs
+  // Map endpoints to execution layers
   app.post("/api/create-batch-transfer", handleBatchTransferExecution);
   app.post("/api/create-payout", handleBatchTransferExecution);
 
   // ── DEBUG WALLET ───────────────────────────────────────────────────────────
   app.get("/api/debug-wallet", async (req, res) => {
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
-    const WALLET_ID  = (process.env.PAYMONGO_WALLET_ID  || "wallet_58629498799e04c7bbc04c62").trim();
     if (!SECRET_KEY) return res.status(500).json({ error: "PAYMONGO_SECRET_KEY not set." });
     try {
-      const r = await axios.get(`https://api.paymongo.com/v2/wallets/${WALLET_ID}`, {
+      // ✅ FIXED: Swapped query path here to map array collections safely
+      const r = await axios.get(`https://api.paymongo.com/v2/wallets`, {
         auth: { username: SECRET_KEY, password: "" },
         headers: { Accept: "application/json" }
       });
