@@ -2,7 +2,6 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import axios from "axios";
-import cors from "cors"; // ✅ IMPORT VERIFIED
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { initializeApp as initializeClientApp } from "firebase/app";
@@ -27,22 +26,27 @@ import fs from "fs";
 // ── FIREBASE CONFIGURATION WORKAROUND ──────────────────────────────────────────
 dotenv.config({ override: true });
 
+// ✅ PLACE THIS EXACT FALLBACK BLOCK HERE:
 let firebaseConfig;
 try {
+  // 1. Attempt to load your local file wrapper for your computer tests
   firebaseConfig = JSON.parse(fs.readFileSync("./firebase-applet-config.json", "utf-8"));
   console.log("[CONFIG] Loaded configuration from local JSON applet asset file.");
 } catch (e) {
+  // 2. Automated fallback: Pull the dynamic variables directly from Firebase's cloud containers
   console.log("[CONFIG] Local JSON file missing. Swapping variables to Cloud Environment context...");
   firebaseConfig = {
-    projectId: process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "cbkapparel-shop", 
+    projectId: process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "cbkapparel-shop", // Fallback project target name
     firestoreDatabaseId: "(default)"
   };
 }
 
+// Initialize Admin safely using our resolved data configuration values
 if (getApps().length === 0) {
   initializeApp({ projectId: firebaseConfig.projectId });
 }
 
+// Initialize Client SDK
 const clientApp = initializeClientApp(firebaseConfig);
 let db = getFirestore(clientApp, firebaseConfig.firestoreDatabaseId);
 // ───────────────────────────────────────────────────────────────────────────────
@@ -52,41 +56,8 @@ const inc = increment;
 
 async function startServer() {
   const app = express();
-  
-  const PORT = process.env.PORT || 3000;
+  const PORT = 3000;
   const isProd = process.env.NODE_ENV === "production";
-
-  // ✅ FIXED: Comprehensive Whitelist to accept all structural root variants of your custom domains
-  const allowedOrigins = [
-    "https://cbkpos.web.app",
-    "https://cbkpos.firebaseapp.com",
-    "https://ai-studio-applet-webapp-10d3d.web.app",
-    "https://ai-studio-applet-webapp-10d3d.firebaseapp.com"
-  ];
-
-// ✅ FIXED: Completely dynamic signature tracking for your trusted web apps to eliminate CORS errors permanently
-  app.use(cors({
-    origin: (origin, callback) => {
-      // Allow server-to-server, localhost, or localized background testing calls cleanly
-      if (!origin) return callback(null, true);
-
-      // Explicitly allow any incoming origin containing your unique app signatures
-      if (
-        origin.includes("cbkpos") || 
-        origin.includes("ai-studio-applet-webapp") || 
-        origin.includes("localhost") || 
-        origin.includes("127.0.0.1")
-      ) {
-        return callback(null, true);
-      }
-
-      console.warn(`[CORS BLOCKED] Unauthorized Domain Connection Rejected: ${origin}`);
-      return callback(new Error("Not allowed by CORS security rules"));
-    },
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization", "Accept"]
-  }));
 
   app.use(express.json());
 
@@ -123,9 +94,11 @@ async function startServer() {
   };
   initDb();
 
-  // ── CENTRAL TRANSFER CORE REUSABLE CONTROLLER ──────────────────────────────
-  const handleBatchTransferExecution = async (req: express.Request, res: express.Response) => {
+
+  // ── CREATE BATCH TRANSFER ──────────────────────────────────────────────────
+  app.post("/api/create-batch-transfer", async (req, res) => {
     console.log("[TRANSFER] Incoming body:", req.body);
+
     const requestData = req.body?.data || req.body || {};
 
     const amountInPesos          = Number(requestData.amountInPesos || requestData.amount_in_pesos || requestData.amount || 0);
@@ -140,15 +113,20 @@ async function startServer() {
     const description            = requestData.description || `Transfer PHP ${amountInPesos}`;
     const referenceNumber        = requestData.referenceNumber || `ref-${Date.now()}`;
 
+    // ── 1. Validate required fields ──────────────────────────────────────────
     if (!recipientAccountNumber || !recipientAccountName || !recipientBankBic) {
       return res.status(400).json({
         success: false,
-        error: "Missing required fields: recipientAccountNumber, recipientAccountName, recipientBankBic"
+        error: "Missing required fields: recipientAccountNumber, recipientAccountName, recipientBankBic",
+        received: { recipientAccountNumber, recipientAccountName, recipientBankBic }
       });
     }
 
     if (amountInPesos <= 0) {
-      return res.status(400).json({ success: false, error: "Transfer amount must be greater than 0" });
+      return res.status(400).json({
+        success: false,
+        error: "Transfer amount must be greater than 0"
+      });
     }
 
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
@@ -158,11 +136,9 @@ async function startServer() {
       return res.status(500).json({ success: false, error: "PAYMONGO_SECRET_KEY is not configured." });
     }
 
-    const authStr = Buffer.from(SECRET_KEY + ':').toString('base64');
-    const secureHeaders = {
-      Authorization: `Basic ${authStr}`,
-      "Content-Type": "application/json",
-      Accept: "application/json"
+    const paymongoAuth = {
+      auth:    { username: SECRET_KEY, password: "" },
+      headers: { "Content-Type": "application/json", "Accept": "application/json" }
     };
 
     try {
@@ -173,17 +149,24 @@ async function startServer() {
         }
       }
 
-      console.log(`[PAYMONGO] Querying primary default wallet accounts...`);
-      const walletRes = await axios.get(`https://api.paymongo.com/v2/wallets?fields=account`, { headers: secureHeaders });
-      const walletData = walletRes.data?.data?.[0]; 
-      const sourceAccount = walletData?.account || walletData?.attributes?.account;
-      const sourceNumber = sourceAccount?.account_number || WALLET_ID;
-      const sourceName = sourceAccount?.account_name || "PayMongo Wallet";
+      // ── 3. Fetch wallet account details using ?fields=account ──────────
+      console.log(`[PAYMONGO] Fetching wallet account: ${WALLET_ID}`);
+      const walletRes = await axios.get(
+        `https://api.paymongo.com/v2/wallets/${WALLET_ID}?fields=account`,
+        paymongoAuth
+      );
+      const walletData = walletRes.data?.data;
+      const sourceAccount = walletData?.account || walletData?.source_account || walletData?.attributes?.account || walletData?.attributes?.source_account;
+      const sourceNumber = sourceAccount?.account_number || sourceAccount?.number || WALLET_ID;
+      const sourceName = sourceAccount?.account_name || sourceAccount?.name || "PayMongo Wallet";
 
       const amountInCents = Math.round(amountInPesos * 100);
+
+      // Clean up destination account numbers and normalize bank routing tokens
       let destNumber = String(recipientAccountNumber).replace(/[^0-9]/g, '').trim().substring(0, 34);
       let targetBankCode = String(recipientBankBic).trim().substring(0, 11);
 
+      // ── 5. Build Corrected PayMongo Batch Transfer Payload ─────────────────
       const payload = {
         transfers: [
           {
@@ -207,28 +190,31 @@ async function startServer() {
         ]
       };
 
-      console.log(`[PAYMONGO] Executing batch transfer payout payload...`);
-      const response = await axios.post("https://api.paymongo.com/v2/batch_transfers", payload, { headers: secureHeaders });
-      let resultData = response.data?.data;
-      let finalTransfer = resultData?.transfers?.[0];
+      console.log("[PAYMONGO] Sending payload:", JSON.stringify(payload, null, 2));
 
-      if (finalTransfer && (finalTransfer.status === "pending" || finalTransfer.attributes?.status === "pending")) {
+      // ── 6. Submit to PayMongo ────────────────────────────────────────────
+      const response = await axios.post(
+        "https://api.paymongo.com/v2/batch_transfers",
+        payload,
+        paymongoAuth
+      );
+      console.log("[PAYMONGO] Response:", JSON.stringify(response.data, null, 2));
+
+      let resultData = response.data?.data;
+      let transfers = resultData?.transfers || [];
+      let finalTransfer = transfers[0];
+
+      if (finalTransfer && finalTransfer.status === "pending") {
+        console.log(`[PAYMONGO] Transfer ${finalTransfer.id} is pending, waiting for final status...`);
         let attempts = 0;
         while (attempts < 12) {
           await new Promise((res) => setTimeout(res, 1500));
           try {
-            console.log(`[POLL] Checking status for transfer ${finalTransfer.id}, attempt ${attempts + 1}...`);
-            const pollRes = await axios.get(`https://api.paymongo.com/v2/transfers/${finalTransfer.id}`, { headers: secureHeaders });
-            
-            const rawTx = pollRes.data?.data;
-            const currentStatus = rawTx?.status || rawTx?.attributes?.status;
-            
-            if (rawTx) {
-              finalTransfer = rawTx;
-            }
-
-            if (currentStatus === "failed" || currentStatus === "rejected" || currentStatus === "completed" || currentStatus === "succeeded") {
-              console.log(`[POLL] Terminal status reached: ${currentStatus}`);
+            const pollRes = await axios.get(`https://api.paymongo.com/v2/transfers/${finalTransfer.id}`, paymongoAuth);
+            const status = pollRes.data?.data?.status;
+            console.log(`[PAYMONGO] Poll ${attempts + 1}: ${status}`);
+            finalTransfer = pollRes.data?.data;
+            if (status === "failed" || status === "rejected" || status === "completed" || status === "succeeded") {
               break;
             }
           } catch (e: any) {
@@ -238,28 +224,46 @@ async function startServer() {
         }
       }
 
-      const finalStatus = finalTransfer?.status || finalTransfer?.attributes?.status;
-      const allSucceeded = finalStatus === "completed" || finalStatus === "succeeded" || finalStatus === "pending";
+      const failedTransfers = finalTransfer?.status === "failed" || finalTransfer?.status === "rejected" ? [finalTransfer] : [];
+      const allSucceeded = finalTransfer?.status === "completed" || finalTransfer?.status === "succeeded" || finalTransfer?.status === "pending";
 
+      console.log("[PAYMONGO] Final Transfer status:", {
+        id:      finalTransfer?.id,
+        status:  finalTransfer?.status,
+        code:    finalTransfer?.provider_error_code || finalTransfer?.failure_code || null,
+        message: finalTransfer?.provider_error_message || finalTransfer?.failure_message || null
+      });
+
+      // Update the resultData with the latest polled transfer status so client sees it
+      if (resultData && resultData.transfers && resultData.transfers.length > 0 && finalTransfer) {
+         resultData.transfers[0] = finalTransfer;
+      }
+
+      // ── 7. Only deduct balance if PayMongo ACTUALLY succeeded ────────────
+      // This is the critical guard — no deduction on failure
       if (senderId && resultData) {
-        const txStatus = (finalStatus === "failed" || finalStatus === "rejected") ? "failed" : allSucceeded ? "completed" : "pending";
+        const txStatus = allSucceeded ? "completed" : "failed";
+
         try {
            await addDoc(collection(db, "transactions"), {
             senderId,
-            recipientId: "external",
-            amount: amountInCents,
-            feeAmount: Math.round(feeAmountPesos * 100),
+            recipientId:     "external",
+            amount:          amountInCents,
+            feeAmount:       Math.round(feeAmountPesos * 100),
             feePercentage,
-            totalAmount: Math.round(totalAmountPesos * 100),
-            currency: "PHP",
-            status: txStatus,
-            type: "payout",
+            totalAmount:     Math.round(totalAmountPesos * 100),
+            currency:        "PHP",
+            status:          txStatus,
+            type:            "payout",
             metadata: {
-              bic: recipientBankBic,
-              account: recipientAccountNumber,
-              name: recipientAccountName,
-              batchId: resultData.id,
-              transferId: finalTransfer?.id || null
+              bic:            recipientBankBic,
+              account:        recipientAccountNumber,
+              name:           recipientAccountName,
+              networkFee:     10,
+              batchId:        resultData.id,
+              transferId:     finalTransfer?.id    || null,
+              failureCode:    finalTransfer?.provider_error_code || finalTransfer?.failure_code || null,
+              failureMessage: finalTransfer?.provider_error_message || finalTransfer?.failure_message || finalTransfer?.failure_reason || null
             },
             createdAt: serverTs()
           });
@@ -267,14 +271,17 @@ async function startServer() {
           console.error("[FIRESTORE] Transaction log failed:", dbErr.message);
         }
 
-        if (txStatus === "completed" || txStatus === "pending") {
+        if (allSucceeded) {
+          // ✅ Deduct ONLY after confirmed success
           try {
             await updateDoc(doc(db, "users", senderId), {
-              balance: inc(-totalAmountPesos),
+              balance:   inc(-totalAmountPesos),
               updatedAt: serverTs()
             });
+            console.log(`[TRANSFER] ✅ ₱${totalAmountPesos} deducted from user ${senderId}`);
           } catch (dbErr: any) {
-            console.error(`[FIRESTORE] Deduction error for user ${senderId}:`, dbErr.message);
+            // Transfer succeeded but deduction failed — log for manual reconciliation
+            console.error(`[FIRESTORE] ⚠️ CRITICAL: PayMongo transfer succeeded but balance deduction FAILED for user ${senderId}:`, dbErr.message);
           }
         }
       }
@@ -282,34 +289,71 @@ async function startServer() {
       if (allSucceeded) {
         return res.json({ success: true, data: resultData });
       } else {
-        const paymongoFailureReason = finalTransfer?.failure_reason || finalTransfer?.attributes?.failure_reason || "Transfer rejected by PayMongo";
-        return res.status(400).json({ success: false, error: paymongoFailureReason, details: resultData });
+        // ❌ Transfer failed
+        const failCode = finalTransfer?.provider_error_code || finalTransfer?.failure_code || "unknown";
+        const failMsg  = finalTransfer?.provider_error_message || finalTransfer?.failure_message || finalTransfer?.failure_reason || "Transfer rejected by PayMongo";
+        console.warn(`[TRANSFER] ❌ Failed — Code: ${failCode} | Message: ${failMsg}`);
+        return res.status(400).json({
+          success: false,
+          error:   `Transfer failed: ${failMsg}`,
+          code:    failCode,
+          details: resultData
+        });
       }
 
     } catch (error: any) {
-      const internalErrorDetails = 
-        error.response?.data?.errors?.[0]?.detail || 
-        error.response?.data?.error || 
-        error.message;
-      res.status(error.response?.status || 500).json({ success: false, error: internalErrorDetails });
+      const errorData = error.response?.data;
+      const status    = error.response?.status;
+      console.warn("[PAYMONGO] API Error:", status, JSON.stringify(errorData || error.message));
+
+      let friendlyError = "PayMongo transfer failed.";
+      if (status === 401) friendlyError = "Unauthorized — check your PAYMONGO_SECRET_KEY.";
+      if (status === 403) friendlyError = "Access denied — verify your PayMongo account has disbursement permissions.";
+      if (status === 400) friendlyError = `Bad request: ${errorData?.errors?.[0]?.detail || "Check payload"}`;
+      if (status === 422) friendlyError = `Validation error: ${errorData?.errors?.[0]?.detail || "Invalid field"}`;
+
+      // ❌ Never deduct balance on error
+      res.status(status || 500).json({
+        success: false,
+        error:   friendlyError,
+        details: errorData || { errors: [{ detail: error.message }] }
+      });
     }
-  };
+  });
 
-  app.post("/api/create-batch-transfer", handleBatchTransferExecution);
-  app.post("/api/create-payout", handleBatchTransferExecution);
 
-  // ── DEBUG WALLET ───────────────────────────────────────────────────────────
+  // Alias
+  app.post("/api/create-payout", (req: any, res: any) => {
+    res.redirect(307, "/api/create-batch-transfer");
+  });
+
+
+
+  // ── DEBUG: Raw wallet response — visit /api/debug-wallet in browser ──────
+  // Shows EXACT balance field names PayMongo returns. DELETE after confirming.
   app.get("/api/debug-wallet", async (req, res) => {
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
+    const WALLET_ID  = (process.env.PAYMONGO_WALLET_ID  || "wallet_58629498799e04c7bbc04c62").trim();
     if (!SECRET_KEY) return res.status(500).json({ error: "PAYMONGO_SECRET_KEY not set." });
     try {
-      const authStr = Buffer.from(SECRET_KEY + ':').toString('base64');
-      const r = await axios.get(`https://api.paymongo.com/v2/wallets`, {
-        headers: { Authorization: `Basic ${authStr}`, Accept: "application/json" }
+      const r = await axios.get(`https://api.paymongo.com/v2/wallets/${WALLET_ID}`, {
+        auth: { username: SECRET_KEY, password: "" },
+        headers: { Accept: "application/json" }
       });
-      res.json({ full_response: r.data });
+      res.json({
+        _note: "FULL raw PayMongo wallet response. Check balance_fields.",
+        balance_fields: {
+          "data.attributes.balance":           r.data?.data?.attributes?.balance,
+          "data.attributes.available_balance": r.data?.data?.attributes?.available_balance,
+          "data.attributes.balance.available": r.data?.data?.attributes?.balance?.available,
+          "data.attributes.balance.pending":   r.data?.data?.attributes?.balance?.pending,
+          "data.attributes.account":           r.data?.data?.attributes?.account,
+          "data.account":                      r.data?.data?.account,
+        },
+        full_response: r.data
+      });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: err.message, details: err.response?.data });
     }
   });
 
@@ -317,54 +361,94 @@ async function startServer() {
   app.get("/api/paymongo-transfer/:id", async (req, res) => {
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
     if (!SECRET_KEY) return res.status(500).json({ error: "PAYMONGO_SECRET_KEY not configured." });
+    
     try {
-      const authStr = Buffer.from(SECRET_KEY + ':').toString('base64');
-      const response = await axios.get(`https://api.paymongo.com/v2/transfers/${req.params.id}`, {
-        headers: { Authorization: `Basic ${authStr}`, Accept: "application/json" }
-      });
+      const response = await axios.get(
+        `https://api.paymongo.com/v2/transfers/${req.params.id}`,
+        {
+          auth: { username: SECRET_KEY, password: "" },
+          headers: { Accept: "application/json" }
+        }
+      );
       res.json(response.data);
     } catch (e: any) {
-      res.status(e.response?.status || 500).json({ error: e.message });
+      res.status(e.response?.status || 500).json({ error: e.message, details: e.response?.data });
     }
   });
 
   // ── GET PAYMONGO BALANCE ───────────────────────────────────────────────────
   let paymongoBalanceCache = { data: null, timestamp: 0 };
-  const CACHE_TTL = 30000; 
+  const CACHE_TTL = 30000; // 30 seconds cache for balance API
   
   app.get("/api/paymongo-balance", async (req, res) => {
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
     if (!SECRET_KEY) return res.status(500).json({ error: "PAYMONGO_SECRET_KEY not configured." });
 
     if (Date.now() - paymongoBalanceCache.timestamp < CACHE_TTL && paymongoBalanceCache.data) {
+      console.log("[PAYMONGO] Returning cached balance...");
       return res.json(paymongoBalanceCache.data);
     }
 
     const authStr = Buffer.from(SECRET_KEY + ':').toString('base64');
-    const headers = { Authorization: `Basic ${authStr}`, Accept: "application/json" };
+    const headers = { 
+       Authorization: `Basic ${authStr}`, 
+       Accept: "application/json" 
+    };
 
     try {
+      // Securely call PayMongo v2 wallets endpoint
       const response = await axios.get("https://api.paymongo.com/v2/wallets?fields=balance", { headers });
+
       const walletsData = response.data?.data || [];
       let balanceCentavos = 0;
 
+      // PayMongo v2 returns an array of wallets. We grab the available balance of the first active wallet.
+      // Note: PayMongo v2 flattened the attributes object, so balance is directly on the wallet object.
       if (Array.isArray(walletsData) && walletsData.length > 0) {
          balanceCentavos = walletsData[0]?.balance?.available || walletsData[0]?.attributes?.balance?.available || 0;
       }
 
+      // Convert centavos to Pesos
       const balancePesos = Number(balanceCentavos) / 100;
-      const responseData = { balance: balancePesos, balanceCentavos, currency: "PHP" };
+
+      console.log(`[PAYMONGO] Wallet balance: ₱${balancePesos}`);
+
+      const responseData = {
+        balance:          balancePesos,
+        balanceCentavos:  Number(balanceCentavos),
+        currency:         "PHP",
+        raw:              response.data
+      };
       
       paymongoBalanceCache = { data: responseData as any, timestamp: Date.now() };
       res.json(responseData);
 
     } catch (error: any) {
       const status = error.response?.status;
-      if (status === 429 && paymongoBalanceCache.data) return res.json(paymongoBalanceCache.data);
       
-      res.status(status || 500).json({ error: "Failed to fetch balance", details: error.message });
+      if (status === 429 && paymongoBalanceCache.data) {
+        console.warn("[PAYMONGO] Rate limited (429). Serving stale cached balance.");
+        return res.json(paymongoBalanceCache.data);
+      }
+      
+      if (status !== 401) {
+        console.warn("[PAYMONGO] Balance fetch error:", JSON.stringify(error.response?.data || error.message));
+      }
+      
+      let errorMsg = "Failed to fetch PayMongo wallet balance";
+      if (status === 401) {
+        errorMsg = `Unauthorized. Please check your Secret Key (starts with: ${SECRET_KEY.substring(0, 7)}...). Make sure it is active and correct.`;
+      }
+      
+      const paymongoError = error.response?.data?.errors?.[0]?.detail || error.message;
+      
+      res.status(status || 500).json({
+        error: errorMsg,
+        details: paymongoError
+      });
     }
   });
+
 
   // ── WEBHOOK ────────────────────────────────────────────────────────────────
   app.post("/api/webhook", async (req, res) => {
@@ -373,15 +457,22 @@ async function startServer() {
       const payment = event.attributes?.data;
       const linkId  = payment?.attributes?.link_id;
       if (linkId) {
-        const q = query(collection(db, "transactions"), where("paymongoLinkId", "==", linkId), where("status", "==", "pending"), limit(1));
+        const q = query(
+          collection(db, "transactions"),
+          where("paymongoLinkId", "==", linkId),
+          where("status", "==", "pending"),
+          limit(1)
+        );
         const txQuery = await getDocs(q);
         if (!txQuery.empty) {
-          const txDoc = txQuery.docs[0];
+          const txDoc  = txQuery.docs[0];
           const txData = txDoc.data();
           if (txData) {
             const batch = writeBatch(db);
             batch.update(txDoc.ref, { status: "completed", updatedAt: serverTs() });
-            batch.update(doc(db, "users", txData.recipientId), { balance: inc(txData.amount / 100), updatedAt: serverTs() });
+            batch.update(doc(db, "users", txData.recipientId), {
+              balance: inc(txData.amount / 100), updatedAt: serverTs()
+            });
             await batch.commit();
           }
         }
@@ -389,6 +480,7 @@ async function startServer() {
     }
     res.json({ received: true });
   });
+
 
   // ── AIRTIME TOP-UP ─────────────────────────────────────────────────────────
   app.post("/api/airtime/topup", async (req, res) => {
@@ -417,35 +509,51 @@ async function startServer() {
     }
   });
 
+
   // ── SYNC BALANCE ───────────────────────────────────────────────────────────
   app.post("/api/sync-balance", async (req, res) => {
     const { userId } = req.body;
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
     if (!SECRET_KEY) return res.status(500).json({ error: "PAYMONGO_SECRET_KEY not configured." });
     try {
-      const authStr = Buffer.from(SECRET_KEY + ':').toString('base64');
-      const txQueryResult = await getDocs(query(collection(db, "transactions"), where("recipientId", "==", userId)));
+      const txQueryResult = await getDocs(
+        query(collection(db, "transactions"), where("recipientId", "==", userId))
+      );
+      let updatedCount = 0;
       for (const txDoc of txQueryResult.docs) {
         const txData = txDoc.data();
         if (txData.status !== "pending" || !txData.paymongoLinkId) continue;
-        const response = await axios.get(`https://api.paymongo.com/v1/links/${txData.paymongoLinkId}`, { headers: { Authorization: `Basic ${authStr}` } });
+        const response = await axios.get(
+          `https://api.paymongo.com/v1/links/${txData.paymongoLinkId}`,
+          { auth: { username: SECRET_KEY, password: "" } }
+        );
         const payments = response.data?.data?.attributes?.payments || [];
         if (Array.isArray(payments) && payments.some((p: any) => p?.data?.attributes?.status === "paid")) {
           const batch = writeBatch(db);
           batch.update(txDoc.ref, { status: "completed", updatedAt: serverTs() });
           batch.update(doc(db, "users", userId), { balance: inc(txData.amount / 100), updatedAt: serverTs() });
           await batch.commit();
+          updatedCount++;
         }
       }
-      res.json({ success: true });
+      res.json({ updatedCount });
     } catch (error: any) {
       res.status(500).json({ error: "Failed to sync balance" });
     }
   });
 
+
   // ── STATIC / VITE ──────────────────────────────────────────────────────────
   if (!isProd) {
-    const vite = await createViteServer({ server: { middlewareMode: true, hmr: { overlay: false } }, appType: "spa" });
+    const vite = await createViteServer({ 
+      server: { 
+        middlewareMode: true,
+        hmr: {
+          overlay: false
+        }
+      }, 
+      appType: "spa" 
+    });
     app.use(vite.middlewares);
     app.get("*", async (req, res, next) => {
       try {
