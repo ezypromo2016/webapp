@@ -857,9 +857,10 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
           {/* Key Performance Indicators */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
              {[
-              { label: "Today's Sales", value: data?.today.totalSales, icon: DollarSign, color: "text-emerald-500", accent: "bg-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20", shadow: "shadow-emerald-500/10" },
-              { label: "Monthly Sales", value: data?.monthly.totalSales, icon: Calendar, color: "text-blue-500", accent: "bg-blue-500", bg: "bg-blue-500/10", border: "border-blue-500/20", shadow: "shadow-blue-500/10" },
+              { label: "Daily Sales Amount", value: data?.today.totalSales, icon: DollarSign, color: "text-emerald-500", accent: "bg-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20", shadow: "shadow-emerald-500/10" },
+              { label: "Monthly Running Sales", value: data?.monthly.totalSales, icon: Calendar, color: "text-blue-500", accent: "bg-blue-500", bg: "bg-blue-500/10", border: "border-blue-500/20", shadow: "shadow-blue-500/10" },
               { label: "Daily Profit", value: data?.today.totalProfit, icon: TrendingUp, color: "text-indigo-500", accent: "bg-indigo-500", bg: "bg-indigo-500/10", border: "border-indigo-500/20", shadow: "shadow-indigo-500/10" },
+              { label: "Monthly Running Profit", value: data?.monthly.totalProfit, icon: Briefcase, color: "text-cyan-500", accent: "bg-cyan-500", bg: "bg-cyan-500/10", border: "border-cyan-500/20", shadow: "shadow-cyan-500/10" },
               { label: "Total Transactions", value: data?.allTime.totalTransactions, icon: History, color: "text-slate-500", accent: "bg-slate-500", bg: "bg-slate-500/10", border: "border-slate-500/20", shadow: "shadow-slate-500/10", isCount: true },
               { label: "Total Profit", value: (data?.allTime.totalProfit || 0) - totalProfitExpenses, icon: Briefcase, color: "text-violet-500", accent: "bg-violet-500", bg: "bg-violet-500/10", border: "border-violet-500/20", shadow: "shadow-violet-500/10" },
               { label: "Daily Printing Sales", value: data?.today.printingSales, icon: Printer, color: "text-fuchsia-500", accent: "bg-fuchsia-500", bg: "bg-fuchsia-500/10", border: "border-fuchsia-500/20", shadow: "shadow-fuchsia-500/10" },

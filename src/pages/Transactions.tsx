@@ -155,6 +155,10 @@ export default function Transactions({ navigate, currentPage }: { navigate: (pag
     grossIncome: number;
     netIncome: number;
   } | null>(null);
+  const [dailyMetrics, setDailyMetrics] = useState<{ dailySales: number; dailyProfit: number; }>({ dailySales: 0, dailyProfit: 0 });
+  const [currentMonthMetrics, setCurrentMonthMetrics] = useState<{ currentMonthSales: number; currentMonthProfit: number; }>({ currentMonthSales: 0, currentMonthProfit: 0 });
+  const [showCurrentMonthMetrics, setShowCurrentMonthMetrics] = useState(true);
+  const [showDailyMetrics, setShowDailyMetrics] = useState(true);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -276,6 +280,32 @@ export default function Transactions({ navigate, currentPage }: { navigate: (pag
       const netIncome = totalSales - totalExpenses;
 
       setMetrics({ totalSales, totalProfit, printingSales, totalExpenses, grossIncome, netIncome });
+
+      // Calculate today's metrics
+      const today = new Date();
+      const dailyTxns = allMergedTxns.filter(t => {
+        const d = safeDate(t.created_at || t.createdAt);
+        return d && d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear() && t.status !== 'voided';
+      });
+
+      const dailySales = dailyTxns.reduce((sum, t) => sum + (t.total || 0), 0);
+      const dailyProfit = dailyTxns.reduce((sum, t) => sum + calculateProfit(t), 0);
+
+      setDailyMetrics({ dailySales, dailyProfit });
+
+      // Calculate current month's running metrics
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0);
+      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+
+      const currentMonthTxns = allMergedTxns.filter(t => {
+        const d = safeDate(t.created_at || t.createdAt);
+        return d && d >= startOfMonth && d <= endOfMonth && t.status !== 'voided';
+      });
+
+      const currentMonthSales = currentMonthTxns.reduce((sum, t) => sum + (t.total || 0), 0);
+      const currentMonthProfit = currentMonthTxns.reduce((sum, t) => sum + calculateProfit(t), 0);
+
+      setCurrentMonthMetrics({ currentMonthSales, currentMonthProfit });
 
     } catch (err) {
       console.error(err);
@@ -775,6 +805,136 @@ export default function Transactions({ navigate, currentPage }: { navigate: (pag
         </header>
 
       <div className="flex-1 p-6 lg:p-10 max-w-7xl mx-auto w-full">
+                {/* Daily Metrics */}
+        <div className="mb-10">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="h-px flex-1 bg-slate-200 dark:bg-white/5" />
+            <button 
+              onClick={() => setShowDailyMetrics(!showDailyMetrics)}
+              className="flex items-center gap-2 px-5 py-1.5 rounded-full bg-emerald-600/10 border border-emerald-500/20 hover:bg-emerald-600/20 transition-all group"
+            >
+              <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-[0.4em]">Today's Metrics</span>
+              {showDailyMetrics ? (
+                <Eye className="w-3 h-3 text-emerald-600 dark:text-emerald-400 transition-transform group-hover:scale-110" />
+              ) : (
+                <EyeOff className="w-3 h-3 text-emerald-600 dark:text-emerald-400 transition-transform group-hover:scale-110" />
+              )}
+            </button>
+            <div className="h-px flex-1 bg-slate-200 dark:bg-white/5" />
+          </div>
+
+          <AnimatePresence>
+            {showDailyMetrics && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[
+                    { label: "Daily Sales Amount", value: dailyMetrics?.dailySales, icon: DollarSign, color: "text-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
+                    { label: "Daily Profit", value: dailyMetrics?.dailyProfit, icon: TrendingUp, color: "text-indigo-500", bg: "bg-indigo-500/10", border: "border-indigo-500/20" },
+                  ].map((stat, i) => (
+                    <motion.div 
+                      key={i}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                      className={`relative overflow-hidden bg-white/70 dark:bg-[#111218]/80 backdrop-blur-xl border ${stat.border} p-5 rounded-[1.5rem] shadow-sm flex flex-col gap-3 group hover:shadow-xl transition-all duration-500 hover:-translate-y-1`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className={`w-10 h-10 rounded-xl ${stat.bg} ${stat.color} flex items-center justify-center shrink-0 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500`}>
+                          <stat.icon className="w-5 h-5" />
+                        </div>
+                        <div className={`text-[8px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-full ${stat.bg} ${stat.color}`}>
+                          TODAY
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">{stat.label}</p>
+                        <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
+                          {loading ? (
+                            <div className="w-20 h-6 bg-slate-200 dark:bg-white/5 animate-pulse rounded-lg mt-1" />
+                          ) : (
+                            formatCurrency(stat.value || 0)
+                          )}
+                        </h3>
+                      </div>
+                      <div className={`absolute -right-4 -bottom-4 w-16 h-16 rounded-full ${stat.bg} blur-2xl opacity-0 group-hover:opacity-40 transition-opacity`} />
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Current Month Metrics */}
+        <div className="mb-10">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="h-px flex-1 bg-slate-200 dark:bg-white/5" />
+            <button 
+              onClick={() => setShowCurrentMonthMetrics(!showCurrentMonthMetrics)}
+              className="flex items-center gap-2 px-5 py-1.5 rounded-full bg-blue-600/10 border border-blue-500/20 hover:bg-blue-600/20 transition-all group"
+            >
+              <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-[0.4em]">Current Month Running</span>
+              {showCurrentMonthMetrics ? (
+                <Eye className="w-3 h-3 text-blue-600 dark:text-blue-400 transition-transform group-hover:scale-110" />
+              ) : (
+                <EyeOff className="w-3 h-3 text-blue-600 dark:text-blue-400 transition-transform group-hover:scale-110" />
+              )}
+            </button>
+            <div className="h-px flex-1 bg-slate-200 dark:bg-white/5" />
+          </div>
+
+          <AnimatePresence>
+            {showCurrentMonthMetrics && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[
+                    { label: "Monthly Running Sales", value: currentMonthMetrics?.currentMonthSales, icon: DollarSign, color: "text-blue-500", bg: "bg-blue-500/10", border: "border-blue-500/20" },
+                    { label: "Monthly Running Profit", value: currentMonthMetrics?.currentMonthProfit, icon: TrendingUp, color: "text-indigo-500", bg: "bg-indigo-500/10", border: "border-indigo-500/20" },
+                  ].map((stat, i) => (
+                    <motion.div 
+                      key={i}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                      className={`relative overflow-hidden bg-white/70 dark:bg-[#111218]/80 backdrop-blur-xl border ${stat.border} p-5 rounded-[1.5rem] shadow-sm flex flex-col gap-3 group hover:shadow-xl transition-all duration-500 hover:-translate-y-1`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className={`w-10 h-10 rounded-xl ${stat.bg} ${stat.color} flex items-center justify-center shrink-0 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500`}>
+                          <stat.icon className="w-5 h-5" />
+                        </div>
+                        <div className={`text-[8px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded-full ${stat.bg} ${stat.color}`}>
+                          THIS MONTH
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">{stat.label}</p>
+                        <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
+                          {loading ? (
+                            <div className="w-20 h-6 bg-slate-200 dark:bg-white/5 animate-pulse rounded-lg mt-1" />
+                          ) : (
+                            formatCurrency(stat.value || 0)
+                          )}
+                        </h3>
+                      </div>
+                      <div className={`absolute -right-4 -bottom-4 w-16 h-16 rounded-full ${stat.bg} blur-2xl opacity-0 group-hover:opacity-40 transition-opacity`} />
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
         {/* Metrics Section */}
         <div className="mb-10">
           <div className="flex items-center gap-3 mb-6">

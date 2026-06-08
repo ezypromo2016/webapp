@@ -2,7 +2,6 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import axios from "axios";
-import cors from "cors"; // ✅ FIXED: Imported CORS package
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { initializeApp as initializeClientApp } from "firebase/app";
@@ -27,24 +26,30 @@ import fs from "fs";
 // ── FIREBASE CONFIGURATION WORKAROUND ──────────────────────────────────────────
 dotenv.config({ override: true });
 
+// ✅ PLACE THIS EXACT FALLBACK BLOCK HERE:
 let firebaseConfig;
 try {
+  // 1. Attempt to load your local file wrapper for your computer tests
   firebaseConfig = JSON.parse(fs.readFileSync("./firebase-applet-config.json", "utf-8"));
   console.log("[CONFIG] Loaded configuration from local JSON applet asset file.");
 } catch (e) {
+  // 2. Automated fallback: Pull the dynamic variables directly from Firebase's cloud containers
   console.log("[CONFIG] Local JSON file missing. Swapping variables to Cloud Environment context...");
   firebaseConfig = {
-    projectId: process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "cbkapparel-shop", 
+    projectId: process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "cbkapparel-shop", // Fallback project target name
     firestoreDatabaseId: "(default)"
   };
 }
 
+// Initialize Admin safely using our resolved data configuration values
 if (getApps().length === 0) {
   initializeApp({ projectId: firebaseConfig.projectId });
 }
 
+// Initialize Client SDK
 const clientApp = initializeClientApp(firebaseConfig);
 let db = getFirestore(clientApp, firebaseConfig.firestoreDatabaseId);
+// ───────────────────────────────────────────────────────────────────────────────
 
 const serverTs = serverTimestamp;
 const inc = increment;
@@ -53,34 +58,6 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
   const isProd = process.env.NODE_ENV === "production";
-
-  // ✅ 1. Enable broad CORS matching including trailing slashes
-  const allowedOrigins = [
-    "http://localhost:5173",
-    "https://cbkpos.web.app",
-    "https://cbkpos.web.app/",
-    "https://ai-studio-applet-webapp-10d3d.web.app"
-  ];
-
-  app.use(cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps, curl, or direct browser tabs)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.indexOf(origin) !== -1) {
-        return callback(null, true);
-      } else {
-        return callback(new Error('Not allowed by CORS'));
-      }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Accept"]
-  }));
-
-  // ✅ 2. Force an instant 200 OK response for all browser OPTIONS preflight checks
-  app.options("*", (req, res) => {
-    res.sendStatus(200);
-  });
 
   app.use(express.json());
 
@@ -117,6 +94,7 @@ async function startServer() {
   };
   initDb();
 
+
   // ── CREATE BATCH TRANSFER ──────────────────────────────────────────────────
   app.post("/api/create-batch-transfer", async (req, res) => {
     console.log("[TRANSFER] Incoming body:", req.body);
@@ -135,6 +113,7 @@ async function startServer() {
     const description            = requestData.description || `Transfer PHP ${amountInPesos}`;
     const referenceNumber        = requestData.referenceNumber || `ref-${Date.now()}`;
 
+    // ── 1. Validate required fields ──────────────────────────────────────────
     if (!recipientAccountNumber || !recipientAccountName || !recipientBankBic) {
       return res.status(400).json({
         success: false,
@@ -170,6 +149,7 @@ async function startServer() {
         }
       }
 
+      // ── 3. Fetch wallet account details using ?fields=account ──────────
       console.log(`[PAYMONGO] Fetching wallet account: ${WALLET_ID}`);
       const walletRes = await axios.get(
         `https://api.paymongo.com/v2/wallets/${WALLET_ID}?fields=account`,
@@ -182,9 +162,11 @@ async function startServer() {
 
       const amountInCents = Math.round(amountInPesos * 100);
 
+      // Clean up destination account numbers and normalize bank routing tokens
       let destNumber = String(recipientAccountNumber).replace(/[^0-9]/g, '').trim().substring(0, 34);
       let targetBankCode = String(recipientBankBic).trim().substring(0, 11);
 
+      // ── 5. Build Corrected PayMongo Batch Transfer Payload ─────────────────
       const payload = {
         transfers: [
           {
@@ -210,6 +192,7 @@ async function startServer() {
 
       console.log("[PAYMONGO] Sending payload:", JSON.stringify(payload, null, 2));
 
+      // ── 6. Submit to PayMongo ────────────────────────────────────────────
       const response = await axios.post(
         "https://api.paymongo.com/v2/batch_transfers",
         payload,
@@ -251,10 +234,13 @@ async function startServer() {
         message: finalTransfer?.provider_error_message || finalTransfer?.failure_message || null
       });
 
+      // Update the resultData with the latest polled transfer status so client sees it
       if (resultData && resultData.transfers && resultData.transfers.length > 0 && finalTransfer) {
          resultData.transfers[0] = finalTransfer;
       }
 
+      // ── 7. Only deduct balance if PayMongo ACTUALLY succeeded ────────────
+      // This is the critical guard — no deduction on failure
       if (senderId && resultData) {
         const txStatus = allSucceeded ? "completed" : "failed";
 
@@ -286,6 +272,7 @@ async function startServer() {
         }
 
         if (allSucceeded) {
+          // ✅ Deduct ONLY after confirmed success
           try {
             await updateDoc(doc(db, "users", senderId), {
               balance:   inc(-totalAmountPesos),
@@ -293,6 +280,7 @@ async function startServer() {
             });
             console.log(`[TRANSFER] ✅ ₱${totalAmountPesos} deducted from user ${senderId}`);
           } catch (dbErr: any) {
+            // Transfer succeeded but deduction failed — log for manual reconciliation
             console.error(`[FIRESTORE] ⚠️ CRITICAL: PayMongo transfer succeeded but balance deduction FAILED for user ${senderId}:`, dbErr.message);
           }
         }
@@ -301,6 +289,7 @@ async function startServer() {
       if (allSucceeded) {
         return res.json({ success: true, data: resultData });
       } else {
+        // ❌ Transfer failed
         const failCode = finalTransfer?.provider_error_code || finalTransfer?.failure_code || "unknown";
         const failMsg  = finalTransfer?.provider_error_message || finalTransfer?.failure_message || finalTransfer?.failure_reason || "Transfer rejected by PayMongo";
         console.warn(`[TRANSFER] ❌ Failed — Code: ${failCode} | Message: ${failMsg}`);
@@ -323,6 +312,7 @@ async function startServer() {
       if (status === 400) friendlyError = `Bad request: ${errorData?.errors?.[0]?.detail || "Check payload"}`;
       if (status === 422) friendlyError = `Validation error: ${errorData?.errors?.[0]?.detail || "Invalid field"}`;
 
+      // ❌ Never deduct balance on error
       res.status(status || 500).json({
         success: false,
         error:   friendlyError,
@@ -331,10 +321,16 @@ async function startServer() {
     }
   });
 
+
+  // Alias
   app.post("/api/create-payout", (req: any, res: any) => {
     res.redirect(307, "/api/create-batch-transfer");
   });
 
+
+
+  // ── DEBUG: Raw wallet response — visit /api/debug-wallet in browser ──────
+  // Shows EXACT balance field names PayMongo returns. DELETE after confirming.
   app.get("/api/debug-wallet", async (req, res) => {
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
     const WALLET_ID  = (process.env.PAYMONGO_WALLET_ID  || "wallet_58629498799e04c7bbc04c62").trim();
@@ -361,6 +357,7 @@ async function startServer() {
     }
   });
 
+  // ── GET SINGLE TRANSFER ───────────────────────────────────────────────────
   app.get("/api/paymongo-transfer/:id", async (req, res) => {
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
     if (!SECRET_KEY) return res.status(500).json({ error: "PAYMONGO_SECRET_KEY not configured." });
@@ -379,8 +376,9 @@ async function startServer() {
     }
   });
 
+  // ── GET PAYMONGO BALANCE ───────────────────────────────────────────────────
   let paymongoBalanceCache = { data: null, timestamp: 0 };
-  const CACHE_TTL = 30000; 
+  const CACHE_TTL = 30000; // 30 seconds cache for balance API
   
   app.get("/api/paymongo-balance", async (req, res) => {
     const SECRET_KEY = (process.env.PAYMONGO_SECRET_KEY || "").trim();
@@ -398,16 +396,21 @@ async function startServer() {
     };
 
     try {
+      // Securely call PayMongo v2 wallets endpoint
       const response = await axios.get("https://api.paymongo.com/v2/wallets?fields=balance", { headers });
 
       const walletsData = response.data?.data || [];
       let balanceCentavos = 0;
 
+      // PayMongo v2 returns an array of wallets. We grab the available balance of the first active wallet.
+      // Note: PayMongo v2 flattened the attributes object, so balance is directly on the wallet object.
       if (Array.isArray(walletsData) && walletsData.length > 0) {
          balanceCentavos = walletsData[0]?.balance?.available || walletsData[0]?.attributes?.balance?.available || 0;
       }
 
+      // Convert centavos to Pesos
       const balancePesos = Number(balanceCentavos) / 100;
+
       console.log(`[PAYMONGO] Wallet balance: ₱${balancePesos}`);
 
       const responseData = {
@@ -446,6 +449,7 @@ async function startServer() {
     }
   });
 
+
   // ── WEBHOOK ────────────────────────────────────────────────────────────────
   app.post("/api/webhook", async (req, res) => {
     const event = req.body?.data;
@@ -477,6 +481,7 @@ async function startServer() {
     res.json({ received: true });
   });
 
+
   // ── AIRTIME TOP-UP ─────────────────────────────────────────────────────────
   app.post("/api/airtime/topup", async (req, res) => {
     const { phoneNumber, amount, telecomNetwork, userId } = req.body;
@@ -503,6 +508,7 @@ async function startServer() {
       res.status(500).json({ success: false, error: error.message });
     }
   });
+
 
   // ── SYNC BALANCE ───────────────────────────────────────────────────────────
   app.post("/api/sync-balance", async (req, res) => {
@@ -536,12 +542,15 @@ async function startServer() {
     }
   });
 
+
   // ── STATIC / VITE ──────────────────────────────────────────────────────────
   if (!isProd) {
     const vite = await createViteServer({ 
       server: { 
         middlewareMode: true,
-        hmr: { overlay: false }
+        hmr: {
+          overlay: false
+        }
       }, 
       appType: "spa" 
     });

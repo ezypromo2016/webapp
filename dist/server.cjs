@@ -26,7 +26,6 @@ var import_express = __toESM(require("express"), 1);
 var import_path = __toESM(require("path"), 1);
 var import_vite = require("vite");
 var import_axios = __toESM(require("axios"), 1);
-var import_cors = __toESM(require("cors"), 1);
 var import_app = require("firebase-admin/app");
 var import_app2 = require("firebase/app");
 var import_lite = require("firebase/firestore/lite");
@@ -41,6 +40,7 @@ try {
   console.log("[CONFIG] Local JSON file missing. Swapping variables to Cloud Environment context...");
   firebaseConfig = {
     projectId: process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "cbkapparel-shop",
+    // Fallback project target name
     firestoreDatabaseId: "(default)"
   };
 }
@@ -55,16 +55,6 @@ async function startServer() {
   const app = (0, import_express.default)();
   const PORT = 3e3;
   const isProd = process.env.NODE_ENV === "production";
-  app.use((0, import_cors.default)({
-    origin: [
-      "http://localhost:5173",
-      "https://cbkpos.web.app",
-      "https://cbkpos.web.app/",
-      // 👈 Add this row
-      "https://ai-studio-applet-webapp-10d3d.web.app"
-    ],
-    credentials: true
-  }));
   app.use(import_express.default.json());
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server (PID ${process.pid}) running on http://0.0.0.0:${PORT}`);
@@ -469,7 +459,9 @@ async function startServer() {
     const vite = await (0, import_vite.createServer)({
       server: {
         middlewareMode: true,
-        hmr: { overlay: false }
+        hmr: {
+          overlay: false
+        }
       },
       appType: "spa"
     });

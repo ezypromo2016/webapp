@@ -152,7 +152,7 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
         limit(50),
       );
       const snap = await getDocs(q);
-      const fetched = snap.docs.map((doc) => {
+      const fetched: any[] = snap.docs.map((doc) => {
         const data = doc.data();
 
         // Sync pending PayMongo transfer status continuously
