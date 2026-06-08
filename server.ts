@@ -64,24 +64,29 @@ async function startServer() {
     "https://ai-studio-applet-webapp-10d3d.firebaseapp.com"
   ];
 
-  // ✅ FIXED: Swapped static array mapping for a dynamic regex-based verification checker to smash CORS network blockages
+// ✅ FIXED: Completely dynamic mirroring for your trusted apps to eliminate CORS blockages permanently
   app.use(cors({
     origin: (origin, callback) => {
-      // Clear local host dev contexts or background CLI tooling scripts
+      // Allow server-to-server, localhost, or localized background testing calls
       if (!origin) return callback(null, true);
-      
-      const isAllowed = allowedOrigins.some(baseOrigin => origin === baseOrigin || origin.startsWith(baseOrigin));
-      if (isAllowed) {
-        callback(null, true);
-      } else {
-        console.warn(`[CORS BLOCKED] Rejected Origin Connection Request: ${origin}`);
-        callback(new Error("Not allowed by CORS security rules"));
+
+      // Explicitly allow any incoming origin containing your unique app signatures
+      if (
+        origin.includes("cbkpos") || 
+        origin.includes("ai-studio-applet-webapp") || 
+        origin.includes("localhost") || 
+        origin.includes("127.0.0.1")
+      ) {
+        return callback(null, true);
       }
+
+      console.warn(`[CORS BLOCKED] Unauthorized Domain Connection: ${origin}`);
+      return callback(new Error("Not allowed by CORS security rules"));
     },
     methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "Accept"]
   }));
-
   app.use(express.json());
 
   const server = app.listen(PORT, "0.0.0.0", () => {
