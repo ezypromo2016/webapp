@@ -321,11 +321,22 @@ export const API = {
         if (customers.length === 0) {
           const cached = await dexieDb.customers.toArray();
           customers = cached.length > 0 ? cached : [];
+          if (customers.length === 0) {
+            try {
+              const resp = await fetch("/customers.json").catch(() => fetch("/data.json"));
+              const staticData = await resp.json();
+              customers = staticData.customers || staticData;
+            } catch (e) {
+              console.warn("Could not load static customer data:", e);
+              customers = Storage.get("cached_customers") || [];
+            }
+          }
         }
 
         result = { data: customers };
         if (customers.length > 0) {
           await dexieDb.customers.bulkPut(customers);
+          Storage.set("cached_customers", customers);
         }
       } else if (path === "/staff") {
         let staff: any[] = [];
@@ -571,7 +582,6 @@ export const API = {
           }
         });
 
-
         result = { data: Object.values(chartData).sort((a, b) => a.date.localeCompare(b.date)) };
       } else if (path === "/dashboard/payment-breakdown") {
         let txns: any[] = [];
@@ -709,7 +719,9 @@ export const API = {
 
   async getPayMongoBalance() {
     try {
-      const response = await axios.get("/api/paymongo-balance");
+      // ✅ FIXED: Dynamically prepends the production VITE_API_URL route to prevent relative domain loops
+      const baseUrl = import.meta.env.VITE_API_URL || "";
+      const response = await axios.get(`${baseUrl}/api/paymongo-balance`);
       return { data: response.data };
     } catch (err: any) {
       console.error("API Get PayMongo Balance Failure:", err);

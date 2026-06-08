@@ -1,0 +1,13 @@
+{
+  "projects": {},
+  "targets": {
+    "ai-studio-applet-webapp-10d3d": {
+      "hosting": {
+        "mainsite": [
+          "cbkpos"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

@@ -20,6 +20,7 @@ interface User {
   name: string;
   email: string;
   role: string;
+  customUsername?: string;
 }
 
 interface AuthContextType {
@@ -30,6 +31,7 @@ interface AuthContextType {
   loginWithGoogle: () => Promise<void>;
   loginOffline: () => void;
   logout: () => void;
+  updateUsername: (username: string) => Promise<void>;
   isLoggedIn: boolean;
   isAdmin: boolean;
   isGuest: boolean;
@@ -86,7 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             id: firebaseUser.uid,
             email: firebaseUser.email || "",
             name: userData.name || firebaseUser.displayName || "User",
-            role: userData.role || "cashier"
+            role: userData.role || "cashier",
+            customUsername: userData.customUsername
           };
           setUser(userObj);
           Storage.set("user", userObj);
@@ -165,6 +168,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     Storage.set("isGuest", true);
   };
 
+  const updateUsername = async (customUsername: string) => {
+    if (!user || isGuest) return;
+    try {
+      const userDocRef = doc(firestore, "users", user.id);
+      await setDoc(userDocRef, { customUsername }, { merge: true });
+      const updatedUser = { ...user, customUsername };
+      setUser(updatedUser);
+      Storage.set("user", updatedUser);
+    } catch (err: any) {
+      console.error("Error updating username:", err);
+      throw err;
+    }
+  };
+
   const logout = async () => {
     await signOut(auth);
     Storage.remove("user");
@@ -184,6 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loginWithGoogle,
         loginOffline,
         logout,
+        updateUsername,
         isLoggedIn: !!user,
         isAdmin: user?.role === "admin",
         isGuest,

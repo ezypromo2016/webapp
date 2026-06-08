@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=server.cjs",
-    "start": "node server.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },
@@ -27,6 +27,7 @@
     "better-sqlite3": "^12.9.0",
     "chart.js": "^4.5.1",
     "clsx": "^2.1.1",
+    "cors": "^2.8.6",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
     "dotenv": "^17.2.3",
@@ -55,5 +56,7 @@
     "workbox-window": "^7.4.1",
     "xlsx": "^0.18.5"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/cors": "^2.8.19"
+  }
 }

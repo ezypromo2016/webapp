@@ -96,6 +96,16 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /order_expenses/{expenseId} {
+      allow read, create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /gcash_accounts/{accountId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
     // Default Deny for anything else
     match /{document=**} {
       allow read, write: if isAdmin();

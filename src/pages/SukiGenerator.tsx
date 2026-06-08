@@ -21,20 +21,24 @@ export default function SukiGenerator({ navigate, currentPage }: { navigate: (pa
   const isRestrictedUser = user?.email === 'user@mariz.com';
   const { theme, toggleTheme } = useTheme();
 
+  const isGCashRestricted = user?.email === 'user@mariz.com';
+  const isPadalaOnlyUser = Boolean(user?.email?.startsWith('user@') && !isAdmin && !isGCashRestricted);
+
   const sidebarItems = [
-    { icon: LayoutDashboard, label: "Dashboard", id: "dashboard", allowed: true },
-    { icon: Clock, label: "Attendance", id: "attendance", allowed: true },
-    { icon: ShoppingCart, label: "Cashier", id: "pos", allowed: true },
-    { icon: ClipboardList, label: "Orders", id: "orders", allowed: true },
-    { icon: SmartphoneNfc, label: "GCash Tracker", id: "gcash", allowed: true },
-    { icon: Package, label: "Inventory", id: "inventory", allowed: isAdmin && !isRestrictedUser },
-    { icon: History, label: "Transactions", id: "transactions", allowed: true },
-    { icon: Users, label: "SUKICARD MEMBERS", id: "customers", allowed: isAdmin && !isRestrictedUser },
-    { icon: IdCard, label: "SUKICARD Generator", id: "generator", allowed: isAdmin && !isRestrictedUser },
-    { icon: Printer, label: "Printing Sales", id: "printing", allowed: isAdmin && !isRestrictedUser },
-    { icon: CreditCard, label: "Credit Tracker", id: "credit-tracker", allowed: isAdmin && !isRestrictedUser },
-    { icon: Briefcase, label: "SOS CREDIT", id: "sos-credit", allowed: isAdmin && !isRestrictedUser },
-    { icon: Settings, label: "Settings", id: "settings", allowed: isAdmin && !isRestrictedUser }
+    { icon: LayoutDashboard, label: "Dashboard", id: "dashboard", allowed: !isPadalaOnlyUser },
+    { icon: Clock, label: "Attendance", id: "attendance", allowed: !isPadalaOnlyUser && !isGCashRestricted },
+    { icon: ShoppingCart, label: "Cashier", id: "pos", allowed: !isPadalaOnlyUser && !isGCashRestricted },
+    { icon: ClipboardList, label: "Orders", id: "orders", allowed: !isPadalaOnlyUser && !isGCashRestricted },
+    { icon: SmartphoneNfc, label: "GCash Tracker", id: "gcash", allowed: !isPadalaOnlyUser },
+    { icon: Package, label: "Inventory", id: "inventory", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: History, label: "Transactions", id: "transactions", allowed: !isPadalaOnlyUser && !isGCashRestricted },
+    { icon: Users, label: "SUKICARD MEMBERS", id: "customers", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: IdCard, label: "SUKICARD Generator", id: "generator", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: Printer, label: "Printing Sales", id: "printing", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: CreditCard, label: "Credit Tracker", id: "credit-tracker", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: Briefcase, label: "SOS CREDIT", id: "sos-credit", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: SmartphoneNfc, label: "Pera Padala", id: "send-money", allowed: !isGCashRestricted },
+    { icon: Settings, label: "Settings", id: "settings", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser }
   ];
   const [formData, setFormData] = useState({
     name: "SUKI MEMBER",

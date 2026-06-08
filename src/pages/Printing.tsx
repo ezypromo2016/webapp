@@ -48,8 +48,7 @@ import { API } from "../lib/api";
 import { db } from "../lib/db";
 import * as XLSX from "xlsx";
 
-// ✅ COMMENTED OUT TO UNBLOCK LINUX COMPILATION ERRORS DURING RENDER BUILD
-// import PrinterDiagnostics from "../components/PrinterDiagnostics";
+import PrinterDiagnostics from "../components/PrinterDiagnostics";
 
 interface PrintingEntry {
   id: string;
@@ -71,20 +70,24 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
   const { user, logout, isAdmin } = useAuth();
   const isRestrictedUser = user?.email === 'user@mariz.com';
   
+  const isGCashRestricted = user?.email === 'user@mariz.com';
+  const isPadalaOnlyUser = Boolean(user?.email?.startsWith('user@') && !isAdmin && !isGCashRestricted);
+
   const sidebarItems = [
-    { icon: LayoutDashboard, label: "Dashboard", id: "dashboard", allowed: true },
-    { icon: Clock, label: "Attendance", id: "attendance", allowed: true },
-    { icon: ShoppingCart, label: "Cashier", id: "pos", allowed: true },
-    { icon: ClipboardList, label: "Orders", id: "orders", allowed: true },
-    { icon: SmartphoneNfc, label: "GCash Tracker", id: "gcash", allowed: true },
-    { icon: Package, label: "Inventory", id: "inventory", allowed: isAdmin && !isRestrictedUser },
-    { icon: History, label: "Transactions", id: "transactions", allowed: true },
-    { icon: Users, label: "SUKICARD MEMBERS", id: "customers", allowed: isAdmin && !isRestrictedUser },
-    { icon: IdCard, label: "SUKICARD Generator", id: "generator", allowed: isAdmin && !isRestrictedUser },
-    { icon: Printer, label: "Printing Sales", id: "printing", allowed: isAdmin && !isRestrictedUser },
-    { icon: CreditCard, label: "Credit Tracker", id: "credit-tracker", allowed: isAdmin && !isRestrictedUser },
-    { icon: Briefcase, label: "SOS CREDIT", id: "sos-credit", allowed: isAdmin && !isRestrictedUser },
-    { icon: Settings, label: "Settings", id: "settings", allowed: isAdmin && !isRestrictedUser }
+    { icon: LayoutDashboard, label: "Dashboard", id: "dashboard", allowed: !isPadalaOnlyUser },
+    { icon: Clock, label: "Attendance", id: "attendance", allowed: !isPadalaOnlyUser && !isGCashRestricted },
+    { icon: ShoppingCart, label: "Cashier", id: "pos", allowed: !isPadalaOnlyUser && !isGCashRestricted },
+    { icon: ClipboardList, label: "Orders", id: "orders", allowed: !isPadalaOnlyUser && !isGCashRestricted },
+    { icon: SmartphoneNfc, label: "GCash Tracker", id: "gcash", allowed: !isPadalaOnlyUser },
+    { icon: Package, label: "Inventory", id: "inventory", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: History, label: "Transactions", id: "transactions", allowed: !isPadalaOnlyUser && !isGCashRestricted },
+    { icon: Users, label: "SUKICARD MEMBERS", id: "customers", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: IdCard, label: "SUKICARD Generator", id: "generator", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: Printer, label: "Printing Sales", id: "printing", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: CreditCard, label: "Credit Tracker", id: "credit-tracker", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: Briefcase, label: "SOS CREDIT", id: "sos-credit", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser },
+    { icon: SmartphoneNfc, label: "Pera Padala", id: "send-money", allowed: !isGCashRestricted },
+    { icon: Settings, label: "Settings", id: "settings", allowed: isAdmin && !isGCashRestricted && !isPadalaOnlyUser }
   ];
   const [entries, setEntries] = useState<PrintingEntry[]>([]);
   const [expenses, setExpenses] = useState<PrintingExpense[]>([]);
@@ -285,6 +288,8 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
   const handleResetAll = async () => {
     setIsSubmitting(true);
     try {
+      // Bulk delete simulation via individual deletes if no bulk endpoint exists
+      // In a real app, a dedicated /reset or bulk delete endpoint would be better
       await Promise.all([
         ...entries.map(e => API.delete(`/printing/${e.id}`)),
         ...expenses.map(e => API.delete(`/printing_expenses/${e.id}`))
@@ -307,6 +312,7 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
       return;
     }
 
+    // Determine date range for export
     const dates = dataToExport.map(e => safeDate(e.created_at)).filter(d => d !== null) as Date[];
     const minDate = dates.length > 0 ? new Date(Math.min(...dates.map(d => d.getTime()))) : null;
     const maxDate = dates.length > 0 ? new Date(Math.max(...dates.map(d => d.getTime()))) : null;
@@ -345,9 +351,11 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
 
     const wb = XLSX.utils.book_new();
     
+    // Summary Sheet
     const wsSummary = XLSX.utils.json_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
 
+    // Details Sheet
     const wsDetails = XLSX.utils.json_to_sheet([...salesHeader, ...salesData, { 'Type': '' }, ...expensesHeader, ...expensesData]);
     XLSX.utils.book_append_sheet(wb, wsDetails, "Detailed Audit");
     
@@ -466,6 +474,8 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
     };
   }, [entries, expenses]);
 
+
+
   const formatCurrency = (n: number) => 
     new Intl.NumberFormat('en-PH', { 
       style: 'currency', 
@@ -473,6 +483,7 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
     }).format(n);
 
   const handlePrint = (entry: PrintingEntry) => {
+    // Transform printing entry to look like a transaction for the Receipt component
     const txn = {
       transactionNumber: `PRNT-${entry.id.substring(0, 8).toUpperCase()}`,
       created_at: entry.created_at,
@@ -486,6 +497,7 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
       }],
       total: entry.total
     };
+    console.log("Printing: Dispatching swiftpos-print", txn);
     window.dispatchEvent(new CustomEvent('swiftpos-print', { detail: txn }));
   };
 
@@ -1496,9 +1508,7 @@ export default function Printing({ navigate, currentPage }: { navigate: (page: a
           </motion.div>
         )}
       </AnimatePresence>
-      
-      {/* ✅ DEACTIVATED UNTIL THE UNTRACKED DIAGNOSTICS FILE IS PUSHED */}
-      {/* <PrinterDiagnostics isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} /> */}
+      <PrinterDiagnostics isOpen={showDiagnostics} onClose={() => setShowDiagnostics(false)} />
     </div>
   );
 }

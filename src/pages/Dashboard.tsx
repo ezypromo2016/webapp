@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { useTheme } from "../lib/theme";
 import { db } from "../lib/db";
+import { db as firestoreDB } from "../lib/firebase";
+import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
 import axios from "axios";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, 
@@ -123,6 +125,41 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
   const [paymongoError, setPaymongoError] = useState<string | null>(null);
   const [nextPayout, setNextPayout] = useState<{ amount: number; date: string } | null>(null);
   const [loadingPaymongo, setLoadingPaymongo] = useState(false);
+  
+  // Pera Padala Transactions
+  const [padalaTransactions, setPadalaTransactions] = useState<any[]>([]);
+  const [loadingPadala, setLoadingPadala] = useState(true);
+  const [padalaTab, setPadalaTab] = useState<string>("All");
+  const [padalaStartDate, setPadalaStartDate] = useState<string>("");
+  const [padalaEndDate, setPadalaEndDate] = useState<string>("");
+  const [selectedPadalaTx, setSelectedPadalaTx] = useState<any>(null);
+
+  
+  // Custom Username Modal State
+  const { updateUsername } = useAuth();
+  const isPadalaOnlyUser = Boolean(user && !isAdmin && !isRestrictedUser && user.email?.startsWith('user@'));
+  const [showUsernameModal, setShowUsernameModal] = useState(isPadalaOnlyUser && !user?.customUsername);
+  const [usernameInput, setUsernameInput] = useState("");
+  const [isSubmittingUsername, setIsSubmittingUsername] = useState(false);
+
+  useEffect(() => {
+    if (isPadalaOnlyUser && !user?.customUsername) {
+      setShowUsernameModal(true);
+    }
+  }, [user?.customUsername, isPadalaOnlyUser]);
+
+  const handleSaveUsername = async () => {
+    if (!usernameInput.trim()) return;
+    setIsSubmittingUsername(true);
+    try {
+      await updateUsername(usernameInput.trim());
+      setShowUsernameModal(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmittingUsername(false);
+    }
+  };
 
   const fetchPayMongoBalance = async () => {
     if (!isAdmin) return;
@@ -140,6 +177,42 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
       setPaymongoError(error.message || "Failed to load balance");
     } finally {
       setLoadingPaymongo(false);
+    }
+  };
+
+  const fetchPadalaTransactions = async () => {
+    if (!isAdmin) return;
+    setLoadingPadala(true);
+    try {
+      const q = query(
+        collection(firestoreDB, "transactions"),
+        orderBy("createdAt", "desc"),
+        limit(200)
+      );
+      const snap = await getDocs(q);
+      const fetched = snap.docs.map((doc) => {
+        const data = doc.data();
+        let dateObj = null;
+        if (data.createdAt) {
+          dateObj = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+        } else {
+          dateObj = new Date();
+        }
+        return {
+          id: doc.id,
+          ...data,
+          dateObj,
+          timeFormatted: dateObj.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        };
+      });
+      setPadalaTransactions(fetched);
+    } catch (err) {
+      console.error("Error fetching Padala tx:", err);
+    } finally {
+      setLoadingPadala(false);
     }
   };
 
@@ -169,7 +242,10 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchData();
-      if (isAdmin) fetchPayMongoBalance();
+      if (isAdmin) {
+        fetchPayMongoBalance();
+        fetchPadalaTransactions();
+      }
     }, 300);
     return () => clearTimeout(timer);
   }, [chartRange, isAdmin]);
@@ -255,24 +331,59 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
   }, [isRestrictedUser]);
 
   const sidebarItems = [
-    { icon: LayoutDashboard, label: "Dashboard", id: "dashboard", allowed: true },
-    { icon: Clock, label: "Attendance", id: "attendance", allowed: true },
-    { icon: ShoppingCart, label: "Cashier", id: "pos", allowed: true },
-    { icon: ClipboardList, label: "Orders", id: "orders", allowed: true },
-    { icon: SmartphoneNfc, label: "GCash Tracker", id: "gcash", allowed: true },
-    { icon: Package, label: "Inventory", id: "inventory", allowed: isAdmin && !isRestrictedUser },
-    { icon: History, label: "Transactions", id: "transactions", allowed: true },
-    { icon: Users, label: "SUKICARD MEMBERS", id: "customers", allowed: isAdmin && !isRestrictedUser },
-    { icon: IdCard, label: "SUKICARD Generator", id: "generator", allowed: isAdmin && !isRestrictedUser },
-    { icon: Printer, label: "Printing Sales", id: "printing", allowed: isAdmin && !isRestrictedUser },
-    { icon: CreditCard, label: "Credit Tracker", id: "credit-tracker", allowed: isAdmin && !isRestrictedUser },
-    { icon: Briefcase, label: "SOS CREDIT", id: "sos-credit", allowed: isAdmin && !isRestrictedUser },
-    { icon: SmartphoneNfc, label: "Pera Padala", id: "send-money", allowed: true },
-    { icon: Settings, label: "Settings", id: "settings", allowed: isAdmin && !isRestrictedUser }
+    { icon: LayoutDashboard, label: "Dashboard", id: "dashboard", allowed: !isPadalaOnlyUser },
+    { icon: Clock, label: "Attendance", id: "attendance", allowed: !isPadalaOnlyUser && !isRestrictedUser },
+    { icon: ShoppingCart, label: "Cashier", id: "pos", allowed: !isPadalaOnlyUser && !isRestrictedUser },
+    { icon: ClipboardList, label: "Orders", id: "orders", allowed: !isPadalaOnlyUser && !isRestrictedUser },
+    { icon: SmartphoneNfc, label: "GCash Tracker", id: "gcash", allowed: !isPadalaOnlyUser },
+    { icon: Package, label: "Inventory", id: "inventory", allowed: isAdmin && !isRestrictedUser && !isPadalaOnlyUser },
+    { icon: History, label: "Transactions", id: "transactions", allowed: !isPadalaOnlyUser && !isRestrictedUser },
+    { icon: Users, label: "SUKICARD MEMBERS", id: "customers", allowed: isAdmin && !isRestrictedUser && !isPadalaOnlyUser },
+    { icon: IdCard, label: "SUKICARD Generator", id: "generator", allowed: isAdmin && !isRestrictedUser && !isPadalaOnlyUser },
+    { icon: Printer, label: "Printing Sales", id: "printing", allowed: isAdmin && !isRestrictedUser && !isPadalaOnlyUser },
+    { icon: CreditCard, label: "Credit Tracker", id: "credit-tracker", allowed: isAdmin && !isRestrictedUser && !isPadalaOnlyUser },
+    { icon: Briefcase, label: "SOS CREDIT", id: "sos-credit", allowed: isAdmin && !isRestrictedUser && !isPadalaOnlyUser },
+    { icon: SmartphoneNfc, label: "Pera Padala", id: "send-money", allowed: !isRestrictedUser },
+    { icon: Settings, label: "Settings", id: "settings", allowed: isAdmin && !isRestrictedUser && !isPadalaOnlyUser }
   ];
 
   return (
     <div className="relative min-h-screen bg-slate-50 dark:bg-[#0a0a0f] text-slate-900 dark:text-slate-200 flex transition-colors duration-500 font-sans overflow-hidden">
+      {showUsernameModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/80 backdrop-blur-md">
+          <div className="bg-white dark:bg-[#15161d] rounded-3xl p-8 max-w-sm w-full shadow-[0_32px_64px_-12px_rgba(0,0,0,0.1)] dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.5)] border border-slate-100 dark:border-white/5 animate-in fade-in zoom-in duration-300">
+            <div className="w-16 h-16 rounded-2xl bg-slate-50 dark:bg-white/5 flex items-center justify-center mb-6">
+              <Users className="w-8 h-8 text-slate-400 dark:text-slate-500" />
+            </div>
+            <h2 className="text-2xl font-bold tracking-tight mb-2 dark:text-white">What's your username?</h2>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-8">Please enter a username to continue to the dashboard.</p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2 ml-1">Username</label>
+                <input
+                  type="text"
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  placeholder="e.g. John Doe"
+                  className="w-full h-14 bg-slate-50 dark:bg-[#0a0a0f] border-2 border-slate-100 dark:border-white/5 rounded-2xl px-5 font-bold text-slate-900 dark:text-white text-base focus:border-slate-300 dark:focus:border-white/20 focus:ring-0 outline-none transition-all placeholder:text-slate-300 dark:placeholder:text-white/20"
+                />
+              </div>
+              <button
+                onClick={handleSaveUsername}
+                disabled={isSubmittingUsername || !usernameInput.trim()}
+                className="w-full h-14 bg-slate-900 dark:bg-white text-white dark:text-black rounded-2xl font-bold tracking-wide hover:bg-slate-800 dark:hover:bg-slate-100 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isSubmittingUsername ? (
+                  <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  "Continue"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Modern Background Accents */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-indigo-500/10 dark:bg-indigo-500/5 rounded-full blur-[120px] animate-pulse" />
@@ -358,10 +469,10 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
           <div className="bg-white/50 backdrop-blur-md rounded-[1.5rem] p-4 border border-slate-200 dark:bg-[#1c1d26]/50 dark:border-white/5 shadow-sm">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-slate-200 dark:bg-white/10 flex items-center justify-center font-black text-slate-600 dark:text-white shadow-inner">
-                {user?.name?.charAt(0) || "U"}
+                {user?.customUsername?.charAt(0) || user?.name?.charAt(0) || "U"}
               </div>
               <div className="overflow-hidden">
-                <p className="text-[11px] font-black text-slate-900 dark:text-white truncate uppercase tracking-tight">{user?.name || "User"}</p>
+                <p className="text-[11px] font-black text-slate-900 dark:text-white truncate uppercase tracking-tight">{user?.customUsername || user?.name || "User"}</p>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
                   <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest leading-none">{user?.role || "Member"}</p>
@@ -377,6 +488,160 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
           </div>
         </div>
       </aside>
+
+      {/* Padala Transaction Modal */}
+      <AnimatePresence>
+        {selectedPadalaTx && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSelectedPadalaTx(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 dark:bg-black/80 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#111218] border border-white/10 p-8 rounded-[2rem] w-full max-w-md shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <button
+                onClick={() => setSelectedPadalaTx(null)}
+                className="absolute top-6 right-6 p-2 bg-white/5 hover:bg-white/10 rounded-xl text-slate-400 transition-colors z-10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="overflow-y-auto pr-2 -mr-2 space-y-6">
+                <div className="mb-2 pr-12 pt-2">
+                  <div
+                    className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-6 shadow-lg ${
+                      ['completed', 'pending', 'processing', 'queued', 'succeeded'].includes(selectedPadalaTx.status)
+                        ? "bg-emerald-500/10 text-emerald-500"
+                        : selectedPadalaTx.status === "failed"
+                          ? "bg-rose-500/10 text-rose-500"
+                          : "bg-amber-500/10 text-amber-500"
+                    }`}
+                  >
+                    {['completed', 'pending', 'processing', 'queued', 'succeeded'].includes(selectedPadalaTx.status) ? (
+                      <CheckCircle2 className="w-8 h-8" />
+                    ) : selectedPadalaTx.status === "failed" ? (
+                      <AlertTriangle className="w-8 h-8" />
+                    ) : (
+                      <RefreshCw className="w-8 h-8 animate-spin" />
+                    )}
+                  </div>
+                  <h3 className="text-2xl font-black text-white uppercase tracking-tighter">
+                    Transaction Details
+                  </h3>
+                </div>
+
+                <div className="space-y-4 pb-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-[#15161d] p-4 rounded-2xl border border-white/5">
+                      <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
+                        Status
+                      </span>
+                      <span
+                        className={`text-sm font-black uppercase tracking-widest ${['completed', 'pending', 'processing', 'queued', 'succeeded'].includes(selectedPadalaTx.status) ? "text-emerald-500" : selectedPadalaTx.status === "failed" ? "text-rose-500" : "text-amber-500"}`}
+                      >
+                        {['completed', 'pending', 'processing', 'queued', 'succeeded'].includes(selectedPadalaTx.status) ? "COMPLETED" : selectedPadalaTx.status}
+                      </span>
+                    </div>
+                    <div className="bg-[#15161d] p-4 rounded-2xl border border-white/5">
+                      <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
+                        Provider
+                      </span>
+                      <span className="text-sm font-black text-white uppercase tracking-widest">
+                        {selectedPadalaTx.metadata?.bic || "Unknown"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#15161d] p-5 rounded-2xl border border-white/5 space-y-4">
+                    <div className="flex justify-between items-center pb-4 border-b border-white/5">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Amount Sent</span>
+                      <span className="text-sm font-black text-white tabular-nums">
+                        ₱{((Number(selectedPadalaTx.amount || 0) / 100)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pb-3 border-b border-white/5">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Service Fee</span>
+                        <span className="text-sm font-black text-rose-400 tabular-nums">
+                        + ₱{(selectedPadalaTx.metadata?.fee || 10).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </span>
+                    </div>
+                    <div className="flex justify-between items-center pb-3 border-b border-white/5">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Amount to Pay</span>
+                      <span className="text-xl font-black text-emerald-400 tabular-nums leading-none">
+                        ₱{((Number(selectedPadalaTx.amount || 0) / 100) + (selectedPadalaTx.metadata?.fee || 10)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pb-3 border-b border-white/5">
+                      <span className="text-[11px] font-black uppercase tracking-widest text-indigo-400">Total Deducted</span>
+                      <span className="text-sm font-black text-indigo-400 tabular-nums">
+                        ₱{((Number(selectedPadalaTx.amount || 0) / 100) + 10).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-1">
+                      <span className="text-[11px] font-black uppercase tracking-widest text-amber-500">Net Profit</span>
+                      <span className="text-xl font-black text-amber-400 tabular-nums">
+                        ₱{Math.max(0, (selectedPadalaTx.metadata?.fee || 10) - 10).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#15161d] p-5 rounded-2xl border border-white/5 space-y-4">
+                    <div>
+                      <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
+                        Recipient Name
+                      </span>
+                      <span className="text-sm font-bold text-white uppercase tracking-wider">
+                        {selectedPadalaTx.metadata?.name || "Unknown"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
+                        Account Number
+                      </span>
+                      <span className="text-sm font-mono text-white tracking-widest">
+                        {selectedPadalaTx.metadata?.account || "-"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
+                        Transacted By
+                      </span>
+                      <span className="text-sm font-bold text-indigo-400 uppercase tracking-widest">
+                        {selectedPadalaTx.metadata?.senderUsername || "Unknown"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
+                        Date & Time
+                      </span>
+                      <span className="text-sm font-bold text-white uppercase tracking-widest">
+                        {selectedPadalaTx.dateObj?.toLocaleDateString()} {selectedPadalaTx.timeFormatted}
+                      </span>
+                    </div>
+                    {selectedPadalaTx.metadata?.description && (
+                      <div>
+                        <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
+                          Description
+                        </span>
+                        <span className="text-xs font-medium text-slate-300">
+                          {selectedPadalaTx.metadata.description}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto max-h-screen relative z-10 scrollbar-hide min-w-0">
@@ -491,6 +756,91 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
                     <RefreshCw className={`w-8 h-8 text-indigo-500 group-hover/refresh:rotate-180 transition-transform duration-700 ${loadingPaymongo ? 'animate-spin' : ''}`} />
                   </button>
                   <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Sync Balance</span>
+                </div>
+              </div>
+
+              {/* Pera Padala Transactions Tabs */}
+              <div className="mt-8 bg-white/50 dark:bg-[#15161d]/50 backdrop-blur-xl border border-slate-200 dark:border-white/10 rounded-[2rem] p-6">
+                <div className="flex items-center gap-3 mb-6">
+                   <div className="flex items-center justify-center w-10 h-10 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
+                     <SmartphoneNfc className="w-5 h-5 text-indigo-500" />
+                   </div>
+                   <div>
+                     <h4 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tighter">Pera Padala Console</h4>
+                     <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest">Instapay & E-Wallet Transfers</p>
+                   </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                  <div className="flex flex-wrap gap-2 flex-col sm:flex-row">
+                    <div className="flex flex-wrap gap-2">
+                      {["All", ...Array.from(new Set(padalaTransactions.filter(tx => tx.type === 'payout').map(tx => tx.metadata?.senderUsername || "Unknown"))).sort()].map(tab => (
+                        <button
+                          key={tab}
+                          onClick={() => setPadalaTab(tab)}
+                          className={`px-4 py-2 text-[10px] uppercase tracking-widest font-black rounded-xl transition-all border ${padalaTab === tab ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-500/20' : 'bg-transparent text-slate-500 border-slate-200 dark:border-white/5 hover:bg-slate-100 dark:hover:bg-white/5'}`}
+                        >
+                          {tab}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 sm:ml-auto bg-white/5 dark:bg-[#111218] rounded-xl border border-slate-200 dark:border-white/10 p-2">
+                    <input type="date" className="bg-transparent text-[10px] uppercase font-black tracking-widest text-slate-500 focus:outline-none" value={padalaStartDate} onChange={e => setPadalaStartDate(e.target.value)} />
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">To</span>
+                    <input type="date" className="bg-transparent text-[10px] uppercase font-black tracking-widest text-slate-500 focus:outline-none" value={padalaEndDate} onChange={e => setPadalaEndDate(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 scrollbar-hide">
+                  {loadingPadala ? (
+                     <div className="flex items-center justify-center py-10">
+                        <RefreshCw className="w-6 h-6 text-indigo-500 animate-spin" />
+                     </div>
+                  ) : padalaTransactions.filter(tx => {
+                      if (tx.type !== 'payout') return false;
+                      if (padalaTab !== "All" && (tx.metadata?.senderUsername || "Unknown") !== padalaTab) return false;
+                      if (padalaStartDate && new Date(tx.dateObj) < new Date(padalaStartDate)) return false;
+                      if (padalaEndDate) {
+                        const end = new Date(padalaEndDate);
+                        end.setHours(23, 59, 59, 999);
+                        if (new Date(tx.dateObj) > end) return false;
+                      }
+                      return true;
+                  }).length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-slate-500 space-y-3 bg-[#15161d] rounded-2xl">
+                      <History className="w-8 h-8 text-slate-600" />
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">No Transactions Found</p>
+                    </div>
+                  ) : (
+                    padalaTransactions.filter(tx => {
+                      if (tx.type !== 'payout') return false;
+                      if (padalaTab !== "All" && (tx.metadata?.senderUsername || "Unknown") !== padalaTab) return false;
+                      if (padalaStartDate && new Date(tx.dateObj) < new Date(padalaStartDate)) return false;
+                      if (padalaEndDate) {
+                        const end = new Date(padalaEndDate);
+                        end.setHours(23, 59, 59, 999);
+                        if (new Date(tx.dateObj) > end) return false;
+                      }
+                      return true;
+                    }).map((tx) => (
+                      <div key={tx.id} onClick={() => setSelectedPadalaTx(tx)} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-[#1c1d26] flex items-center justify-between p-4 bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/5 rounded-2xl transition-colors">
+                         <div className="flex items-center gap-4">
+                           <div className={`p-3 rounded-xl ${['completed', 'pending', 'processing', 'queued', 'succeeded'].includes(tx.status) ? 'bg-emerald-500/10 text-emerald-500' : tx.status === 'failed' ? 'bg-rose-500/10 text-rose-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                             {['completed', 'pending', 'processing', 'queued', 'succeeded'].includes(tx.status) ? <CheckCircle2 className="w-4 h-4" /> : tx.status === 'failed' ? <AlertTriangle className="w-4 h-4" /> : <RefreshCw className="w-4 h-4 animate-spin" />}
+                           </div>
+                           <div>
+                             <p className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-tight">{tx.metadata?.name || "Unknown Recipient"}</p>
+                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-0.5">{tx.metadata?.senderUsername || "Unknown"} • {tx.metadata?.bic || tx.metadata?.account || "-"}</p>
+                           </div>
+                         </div>
+                         <div className="text-right">
+                           <p className="text-sm font-black text-indigo-500 tabular-nums leading-none">₱{((tx.amount || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                           <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">{tx.dateObj?.toLocaleDateString()} {tx.timeFormatted}</p>
+                         </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </motion.div>

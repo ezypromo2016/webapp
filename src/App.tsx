@@ -52,6 +52,9 @@ function AppContent() {
       if (isRestrictedUser) {
         setCurrentPage("gcash");
         setIsModuleVerified(true);
+      } else if (Boolean(user && !isAdmin && !isRestrictedUser && user.email?.startsWith('user@'))) {
+        setCurrentPage("send-money");
+        setIsModuleVerified(true);
       }
     }
   }, [user, isRestrictedUser]);
@@ -110,10 +113,18 @@ function AppContent() {
     );
   }
 
+  const isPadalaOnlyUser = Boolean(user && !isAdmin && !isRestrictedUser && user.email?.startsWith('user@'));
+
   const navigate = (page: typeof currentPage) => {
     // Restricted user is locked to gcash or dashboard (to see menu)
     if (isRestrictedUser && !["gcash", "dashboard"].includes(page)) {
       console.warn("Navigation restricted for terminal user");
+      return;
+    }
+    
+    // Pera Padala user is restricted to send-money
+    if (isPadalaOnlyUser && !["send-money"].includes(page)) {
+      console.warn("Navigation restricted for Padala Only user");
       return;
     }
 
