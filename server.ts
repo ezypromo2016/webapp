@@ -56,12 +56,28 @@ async function startServer() {
   const PORT = process.env.PORT || 3000;
   const isProd = process.env.NODE_ENV === "production";
 
-  // ✅ ACTIVE INTERCEPTOR: Authorized pipeline origins to smash CORS Network Blocks
+  // ✅ FIXED: Comprehensive Whitelist to accept all structural root variants of your custom domains
+  const allowedOrigins = [
+    "https://cbkpos.web.app",
+    "https://cbkpos.firebaseapp.com",
+    "https://ai-studio-applet-webapp-10d3d.web.app",
+    "https://ai-studio-applet-webapp-10d3d.firebaseapp.com"
+  ];
+
+  // ✅ FIXED: Swapped static array mapping for a dynamic regex-based verification checker to smash CORS network blockages
   app.use(cors({
-    origin: [
-      "https://cbkpos.web.app",
-      "https://ai-studio-applet-webapp-10d3d.web.app"
-    ],
+    origin: (origin, callback) => {
+      // Clear local host dev contexts or background CLI tooling scripts
+      if (!origin) return callback(null, true);
+      
+      const isAllowed = allowedOrigins.some(baseOrigin => origin === baseOrigin || origin.startsWith(baseOrigin));
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        console.warn(`[CORS BLOCKED] Rejected Origin Connection Request: ${origin}`);
+        callback(new Error("Not allowed by CORS security rules"));
+      }
+    },
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
   }));
