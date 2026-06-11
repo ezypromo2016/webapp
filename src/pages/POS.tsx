@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { API } from "../lib/api";
 import { db } from "../lib/db";
 import { motion, AnimatePresence } from "motion/react";
@@ -150,6 +150,8 @@ export default function POS({ navigate, currentPage }: { navigate: (page: any) =
   const [lessAmount, setLessAmount] = useState<string>("");
   const [toasts, setToasts] = useState<{id: string, message: string, type: "success" | "error"}[]>([]);
   const [catMenuOpen, setCatMenuOpen] = useState(false);
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const sukiOwner = useMemo(() => {
     if (!sukiNumber) return null;
@@ -343,6 +345,13 @@ export default function POS({ navigate, currentPage }: { navigate: (page: any) =
       return;
     }
 
+    if (paymentMethod === "cash" && showCashModal) {
+      if (parseFloat(cashTendered) < total) {
+        addToast("Insufficient cash tendered", "error");
+        return;
+      }
+    }
+
     setIsProcessing(true);
     try {
       const awardedPoints = sukiNumber ? calculatePoints(total) : 0;
@@ -430,6 +439,42 @@ export default function POS({ navigate, currentPage }: { navigate: (page: any) =
       setIsProcessing(false);
     }
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is inside an input/textarea and types a letter, but we want F-keys to work globally
+      if (e.key === 'F1') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (e.key === 'F2') {
+        e.preventDefault();
+        if (lastTxn) {
+          handlePrint(lastTxn);
+          addToast("Printing Last Receipt...", "success");
+        } else {
+          addToast("No recent transaction to print", "error");
+        }
+      } else if (e.key === 'F4') {
+        e.preventDefault();
+        if (cart.length > 0) {
+          handleCheckout("cash");
+        } else {
+          addToast("Cart is empty", "error");
+        }
+      } else if (e.key === 'F8') {
+        e.preventDefault();
+        if (cart.length > 0) {
+          setCart([]);
+          setSukiNumber("");
+          setLessAmount("");
+          addToast("Cart cleared", "success");
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cart, lastTxn, showCashModal, handleCheckout, handlePrint, addToast]);
 
   return (
     <div className="flex h-screen bg-[#f8f9fa] dark:bg-[#0a0a0f] text-slate-900 dark:text-slate-200 overflow-hidden font-sans transition-colors duration-300">
@@ -574,8 +619,9 @@ export default function POS({ navigate, currentPage }: { navigate: (page: any) =
           <div className="flex-1 min-w-[120px] max-w-sm lg:max-w-md relative group">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
             <input 
+              ref={searchInputRef}
               type="text" 
-              placeholder="Search Items..." 
+              placeholder="Search Items... (F1)" 
               value={search || ""}
               onChange={(e) => setSearch(e.target.value.toUpperCase())}
               className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-2.5 md:py-3 pl-10 pr-4 text-sm md:text-base focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500/50 transition-all font-bold text-slate-900 placeholder:text-slate-400 dark:bg-black/20 dark:border-white/5 dark:text-white uppercase"
@@ -908,7 +954,7 @@ export default function POS({ navigate, currentPage }: { navigate: (page: any) =
               className="flex flex-col items-center gap-1.5 md:gap-2 p-3 md:p-4 rounded-xl md:rounded-2xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-20 transition-all font-bold text-white group"
             >
               <Banknote className="w-5 h-5 md:w-6 md:h-6 group-hover:scale-110 transition-transform" />
-              <span className="text-[10px] md:text-xs uppercase font-black">CASH</span>
+              <span className="text-[10px] md:text-xs uppercase font-black">CASH (F4)</span>
             </button>
             <button 
               disabled={cart.length === 0 || isProcessing}

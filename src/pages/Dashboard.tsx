@@ -135,6 +135,14 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
   const [selectedPadalaTx, setSelectedPadalaTx] = useState<any>(null);
 
   
+  // Dafox Transactions
+  const [dafoxTransactions, setDafoxTransactions] = useState<any[]>([]);
+  const [loadingDafox, setLoadingDafox] = useState(true);
+  const [dafoxTab, setDafoxTab] = useState<string>("All");
+  const [dafoxStartDate, setDafoxStartDate] = useState<string>("");
+  const [dafoxEndDate, setDafoxEndDate] = useState<string>("");
+  const [selectedDafoxTx, setSelectedDafoxTx] = useState<any>(null);
+
   // Custom Username Modal State
   const { updateUsername } = useAuth();
   const isPadalaOnlyUser = Boolean(user && !isAdmin && !isRestrictedUser && user.email?.startsWith('user@'));
@@ -216,6 +224,42 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
     }
   };
 
+  const fetchDafoxTransactions = async () => {
+    if (!isAdmin) return;
+    setLoadingDafox(true);
+    try {
+      const q = query(
+        collection(firestoreDB, "dafox_transactions"),
+        orderBy("createdAt", "desc"),
+        limit(200)
+      );
+      const snap = await getDocs(q);
+      const fetched = snap.docs.map((doc) => {
+        const data = doc.data();
+        let dateObj = null;
+        if (data.createdAt) {
+          dateObj = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+        } else {
+          dateObj = new Date();
+        }
+        return {
+          id: doc.id,
+          ...data,
+          dateObj,
+          timeFormatted: dateObj.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        };
+      });
+      setDafoxTransactions(fetched);
+    } catch (err) {
+      console.error("Error fetching Dafox tx:", err);
+    } finally {
+      setLoadingDafox(false);
+    }
+  };
+
   const fetchData = async () => {
     try {
       const query = { days: chartRange };
@@ -245,6 +289,7 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
       if (isAdmin) {
         fetchPayMongoBalance();
         fetchPadalaTransactions();
+        fetchDafoxTransactions();
       }
     }, 300);
     return () => clearTimeout(timer);
@@ -643,6 +688,142 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
         )}
       </AnimatePresence>
 
+      {/* Dafox Transaction Modal */}
+      <AnimatePresence>
+        {selectedDafoxTx && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            onClick={() => setSelectedDafoxTx(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#111218] border border-white/10 p-8 rounded-[2rem] w-full max-w-md shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <button
+                onClick={() => setSelectedDafoxTx(null)}
+                className="absolute top-6 right-6 p-2 bg-white/5 hover:bg-white/10 rounded-xl text-slate-400 transition-colors z-10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              
+              <div className="flex-1 overflow-y-auto pr-2 scrollbar-hide">
+                <div className="mb-6 mt-2">
+                  <div className="w-16 h-16 bg-orange-500/10 text-orange-500 rounded-3xl flex items-center justify-center mb-6 border border-orange-500/20">
+                    <History className="w-8 h-8" />
+                  </div>
+                  <h3 className="text-2xl font-black text-white uppercase tracking-tighter leading-tight mb-2">
+                    Dafox Transaction Details
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-1 bg-emerald-500/10 text-emerald-400 text-[10px] font-black uppercase tracking-widest rounded-md">
+                      Completed
+                    </span>
+                    <span className="text-xs font-bold text-slate-400">
+                      ID: {selectedDafoxTx.id.slice(0, 8)}...
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-4 mb-8">
+                  <div className="bg-[#15161d] p-5 rounded-2xl border border-white/5 space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Keyword / Promo</span>
+                      <span className="text-sm font-bold text-orange-400 uppercase tracking-wider">
+                        {selectedDafoxTx.keyword || selectedDafoxTx.promoId || "-"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center bg-white/5 p-3 rounded-xl">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Base Amount</span>
+                      <span className="text-sm font-black text-white tabular-nums tracking-wider">
+                        ₱{Number(selectedDafoxTx.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    {selectedDafoxTx.shopFee !== undefined ? (
+                      <>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Store Fee</span>
+                          <span className="text-sm font-black text-orange-400 tabular-nums">
+                            ₱{Number(selectedDafoxTx.shopFee || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1 border-t border-white/5 mt-2">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-emerald-500 mt-2">Total Collection</span>
+                          <span className="text-xl font-black text-emerald-400 tabular-nums mt-2">
+                            ₱{Number(selectedDafoxTx.totalPay || (selectedDafoxTx.price + selectedDafoxTx.shopFee)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="bg-white/5 p-3 rounded-xl mt-3 flex justify-between items-center text-[10px]">
+                          <div>
+                            <span className="text-slate-400 font-bold uppercase tracking-widest block mb-0.5">Dafox System Fee: ₱{Number(selectedDafoxTx.systemFee || 0).toFixed(2)}</span>
+                            <span className="text-slate-500 font-bold uppercase tracking-widest block">Wallet Deduction</span>
+                          </div>
+                          <span className="text-rose-400 font-mono text-[11px] font-bold">₱{Number(selectedDafoxTx.totalDeduction || (selectedDafoxTx.price + (selectedDafoxTx.systemFee || 0))).toFixed(2)}</span>
+                        </div>
+                      </>
+                    ) : selectedDafoxTx.fee !== undefined ? (
+                      <>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Fee</span>
+                          <span className="text-sm font-black text-orange-400 tabular-nums">
+                            ₱{Number(selectedDafoxTx.fee || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1 border-t border-white/5 mt-2">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-emerald-500 mt-2">Total Pay</span>
+                          <span className="text-xl font-black text-emerald-400 tabular-nums mt-2">
+                            ₱{Number(selectedDafoxTx.totalPay || (selectedDafoxTx.price + selectedDafoxTx.fee)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex justify-between items-center pt-1 border-t border-white/5 mt-2">
+                         <span className="text-[11px] font-black uppercase tracking-widest text-emerald-500 mt-2">Total Charged</span>
+                         <span className="text-xl font-black text-emerald-400 tabular-nums mt-2">
+                           ₱{Number(selectedDafoxTx.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                         </span>
+                       </div>
+                    )}
+                  </div>
+
+                  <div className="bg-[#15161d] p-5 rounded-2xl border border-white/5 space-y-4">
+                    <div>
+                      <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
+                        Customer
+                      </span>
+                      <span className="text-sm font-bold text-white uppercase tracking-wider">
+                        {selectedDafoxTx.phone || "-"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
+                        Transacted By
+                      </span>
+                      <span className="text-sm font-bold text-orange-400 uppercase tracking-widest">
+                        {selectedDafoxTx.senderUsername || "Unknown"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-black uppercase text-slate-500 block mb-1">
+                        Date & Time
+                      </span>
+                      <span className="text-sm font-bold text-white uppercase tracking-widest">
+                        {selectedDafoxTx.dateObj?.toLocaleDateString()} {selectedDafoxTx.timeFormatted}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto max-h-screen relative z-10 scrollbar-hide min-w-0">
         {/* Top Header */}
@@ -843,6 +1024,90 @@ export default function Dashboard({ navigate, currentPage }: { navigate: (page: 
                   )}
                 </div>
               </div>
+
+              {/* Dafox Transactions Tabs */}
+              <div className="mt-8 bg-white/50 dark:bg-[#15161d]/50 backdrop-blur-xl border border-slate-200 dark:border-white/10 rounded-[2rem] p-6">
+                <div className="flex items-center gap-3 mb-6">
+                   <div className="flex items-center justify-center w-10 h-10 bg-orange-500/10 rounded-xl border border-orange-500/20">
+                     <History className="w-5 h-5 text-orange-500" />
+                   </div>
+                   <div>
+                     <h4 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tighter">DAFOX CONSOLE</h4>
+                     <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest">Load & Promos Transactions</p>
+                   </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                  <div className="flex flex-wrap gap-2 flex-col sm:flex-row">
+                    <div className="flex flex-wrap gap-2">
+                      {["All", ...Array.from(new Set(dafoxTransactions.map(tx => tx.senderUsername || "Unknown"))).sort()].map(tab => (
+                        <button
+                          key={tab}
+                          onClick={() => setDafoxTab(tab)}
+                          className={`px-4 py-2 text-[10px] uppercase tracking-widest font-black rounded-xl transition-all border ${dafoxTab === tab ? 'bg-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/20' : 'bg-transparent text-slate-500 border-slate-200 dark:border-white/5 hover:bg-slate-100 dark:hover:bg-white/5'}`}
+                        >
+                          {tab}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 sm:ml-auto bg-white/5 dark:bg-[#111218] rounded-xl border border-slate-200 dark:border-white/10 p-2">
+                    <input type="date" className="bg-transparent text-[10px] uppercase font-black tracking-widest text-slate-500 focus:outline-none" value={dafoxStartDate} onChange={e => setDafoxStartDate(e.target.value)} />
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">To</span>
+                    <input type="date" className="bg-transparent text-[10px] uppercase font-black tracking-widest text-slate-500 focus:outline-none" value={dafoxEndDate} onChange={e => setDafoxEndDate(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 scrollbar-hide">
+                  {loadingDafox ? (
+                     <div className="flex items-center justify-center py-10">
+                        <RefreshCw className="w-6 h-6 text-orange-500 animate-spin" />
+                     </div>
+                  ) : dafoxTransactions.filter(tx => {
+                      if (dafoxTab !== "All" && (tx.senderUsername || "Unknown") !== dafoxTab) return false;
+                      if (dafoxStartDate && new Date(tx.dateObj) < new Date(dafoxStartDate)) return false;
+                      if (dafoxEndDate) {
+                        const end = new Date(dafoxEndDate);
+                        end.setHours(23, 59, 59, 999);
+                        if (new Date(tx.dateObj) > end) return false;
+                      }
+                      return true;
+                  }).length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-slate-500 space-y-3 bg-[#15161d] rounded-2xl">
+                      <History className="w-8 h-8 text-slate-600" />
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">No Transactions Found</p>
+                    </div>
+                  ) : (
+                    dafoxTransactions.filter(tx => {
+                      if (dafoxTab !== "All" && (tx.senderUsername || "Unknown") !== dafoxTab) return false;
+                      if (dafoxStartDate && new Date(tx.dateObj) < new Date(dafoxStartDate)) return false;
+                      if (dafoxEndDate) {
+                        const end = new Date(dafoxEndDate);
+                        end.setHours(23, 59, 59, 999);
+                        if (new Date(tx.dateObj) > end) return false;
+                      }
+                      return true;
+                    }).map((tx) => (
+                      <div key={tx.id} onClick={() => setSelectedDafoxTx(tx)} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-[#1c1d26] flex items-center justify-between p-4 bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/5 rounded-2xl transition-colors">
+                         <div className="flex items-center gap-4">
+                           <div className="p-3 bg-orange-500/10 text-orange-500 rounded-xl">
+                             <CheckCircle2 className="w-4 h-4" />
+                           </div>
+                           <div>
+                             <p className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-tight">{tx.phone || "Unknown Customer"}</p>
+                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-0.5">{tx.senderUsername || "Unknown"} • {tx.keyword || tx.promoId || "-"}</p>
+                           </div>
+                         </div>
+                         <div className="text-right">
+                           <p className="text-sm font-black text-emerald-500 tabular-nums leading-none">₱{Number(tx.totalPay || ((tx.price || 0) + (tx.shopFee !== undefined ? tx.shopFee : (tx.fee || 0)))).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                           <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-1">{tx.dateObj?.toLocaleDateString()} {tx.timeFormatted}</p>
+                         </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
             </motion.div>
           )}
           

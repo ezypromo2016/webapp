@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from "react";
 import {
-  ArrowLeft,
+  Smartphone,
+  Wifi,
+  Radio,
+ArrowLeft,
   Send,
   User,
   CreditCard,
@@ -48,6 +51,26 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "../lib/firebase";
 import { useAuth } from "../lib/auth";
+import { DafoxTerminal } from "../components/DafoxTerminal";
+
+const BASIC_PROMOS = [
+  { id: 'REG20', name: 'Regular 20', network: 'Any', price: 20 },
+  { id: 'REG50', name: 'Regular 50', network: 'Any', price: 50 },
+  { id: 'GO50', name: 'Globe GO50', network: 'Globe', price: 50 },
+  { id: 'POWERALL99', name: 'Smart POWERALL99', network: 'Smart', price: 99 },
+  { id: 'POWERALL149', name: 'Smart POWERALL149', network: 'Smart', price: 149 },
+  { id: 'ALLOUT30', name: 'Smart ALLOUT30', network: 'Smart', price: 30 },
+  { id: 'ALLOUT99', name: 'Smart ALLOUT99', network: 'Smart', price: 99 },
+  { id: 'GIGAVIDEO50', name: 'Smart/TNT GIGAVIDEO50', network: 'Smart', price: 50 },
+  { id: 'GIGAVIDEO99', name: 'Smart/TNT GIGAVIDEO99', network: 'Smart', price: 99 },
+  { id: 'MAGICDATA199', name: 'Smart/TNT MAGICDATA199', network: 'Smart', price: 199 },
+  { id: 'MAGICDATA399', name: 'Smart/TNT MAGICDATA399', network: 'Smart', price: 399 },
+  { id: 'SURF4ALL99', name: 'Globe SURF4ALL99', network: 'Globe', price: 99 },
+  { id: 'EZ50', name: 'TM EZ50', network: 'TM', price: 50 },
+  { id: 'EZ99', name: 'TM EZ99', network: 'TM', price: 99 },
+  { id: 'FB10', name: 'TNT FB10', network: 'TNT', price: 10 },
+  { id: 'ML10', name: 'TNT ML10', network: 'TNT', price: 10 },
+];
 
 interface SendMoneyProps {
   navigate: (page: any) => void;
@@ -84,6 +107,85 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
+  
+  const [activeTab, setActiveTab] = useState<"send-money" | "dafox">("send-money");
+
+  // E-Load States
+  const [eloadPhone, setEloadPhone] = useState("");
+  const [eloadNetwork, setEloadNetwork] = useState("SMART");
+  const [eloadPackageType, setEloadPackageType] = useState<"regular" | "promo">("regular");
+  const [eloadAmount, setEloadAmount] = useState("");
+  const [eloadPromo, setEloadPromo] = useState("");
+  const [isEloading, setIsEloading] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const handleEload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isOnline) {
+      setErrorMessage("Connection lost. E-loading require live internet validation.");
+      setStatus("error");
+      return;
+    }
+
+    // Validation
+    const phoneRegex = /^09\d{9}$/;
+    if (!phoneRegex.test(eloadPhone)) {
+       setErrorMessage("Invalid phone number. Must start with 09 and be exactly 11 digits.");
+       setStatus("error");
+       return;
+    }
+
+    if (eloadPackageType === "regular" && !parseFloat(eloadAmount)) {
+       setErrorMessage("Please enter a valid amount.");
+       setStatus("error");
+       return;
+    }
+
+    if (eloadPackageType === "promo" && !eloadPromo) {
+       setErrorMessage("Please select a promo.");
+       setStatus("error");
+       return;
+    }
+
+    setIsEloading(true);
+    setStatus("idle");
+    setErrorMessage("");
+
+    try {
+      const response = await axios.post('/api/buy-load', {
+        phoneNumber: eloadPhone,
+        telcoNetwork: eloadNetwork,
+        amountOrPromoCode: eloadPackageType === "regular" ? eloadAmount : eloadPromo,
+        senderId: user?.uid,
+        senderName: user?.customUsername || user?.name || "User",
+        senderEmail: user?.email
+      });
+      
+      // Update balance if possible
+      fetchBalance();
+      fetchTransactions();
+      setStatus("success");
+      
+    } catch (err: any) {
+      console.error(err);
+      setStatus("error");
+      setErrorMessage(err.response?.data?.message || err.message || "E-Loading failed");
+    } finally {
+      setIsEloading(false);
+    }
+  };
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   
   const sidebarItems = [
@@ -115,7 +217,73 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
     return true;
   });
 
+  
+  const userSummaries = React.useMemo(() => {
+    const summary: Record<string, number> = {};
+    filteredTransactions.forEach(tx => {
+       if (tx.status === 'completed' || tx.status === 'succeeded') {
+           const username = tx.metadata?.senderUsername || "Unknown";
+           const amt = tx.type === "e_load" 
+             ? Number(tx.amount || 0)
+             : (Number(tx.amount || 0) / 100) + (tx.metadata?.fee || 10);
+           summary[username] = (summary[username] || 0) + amt;
+       }
+    });
+    // Sort usernames alphabetically
+    const sorted: Record<string, number> = {};
+    Object.keys(summary).sort().forEach(k => {
+      sorted[k] = summary[k];
+    });
+    return sorted;
+  }, [filteredTransactions]);
+
+  const [remittanceStatus, setRemittanceStatus] = useState<Record<string, "remitted" | "not-remitted">>(() => {
+    try { return JSON.parse(localStorage.getItem("remittanceStatus") || "{}") } catch { return {} }
+  });
+
+  const toggleRemittance = (username: string, value: "remitted" | "not-remitted") => {
+    setRemittanceStatus(prev => {
+      const next = { ...prev, [username]: value };
+      localStorage.setItem("remittanceStatus", JSON.stringify(next));
+      return next;
+    });
+  };
+
   const [recordToDelete, setRecordToDelete] = useState<string | null>(null);
+  const [cashierToDelete, setCashierToDelete] = useState<string | null>(null);
+
+  const confirmDeleteCashier = async () => {
+    if (!cashierToDelete) return;
+    try {
+      const txsToDelete = filteredTransactions.filter(tx => 
+        (tx.metadata?.senderUsername || "Unknown") === cashierToDelete
+      );
+      
+      for (const tx of txsToDelete) {
+        if (tx.id) {
+          await deleteDoc(doc(db, "transactions", tx.id));
+        }
+      }
+      
+      setTransactions((prev) => prev.filter((tx) => !txsToDelete.some(t => t.id === tx.id)));
+      
+      setRemittanceStatus(prev => {
+        const next = { ...prev };
+        delete next[cashierToDelete];
+        localStorage.setItem("remittanceStatus", JSON.stringify(next));
+        return next;
+      });
+    } catch (err) {
+      console.error("Failed to delete cashier records:", err);
+    } finally {
+      setCashierToDelete(null);
+    }
+  };
+
+  const handleCashierDelete = (e: React.MouseEvent, username: string) => {
+    e.stopPropagation();
+    setCashierToDelete(username);
+  };
 
   const confirmDelete = async () => {
     if (!recordToDelete) return;
@@ -143,9 +311,8 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
     setLoadingTx(true);
     try {
       // Async sync from PayMongo for pending records
-      const baseUrl = import.meta.env.VITE_API_URL || "";
-      axios.post(`${baseUrl}/api/debug-refund`).catch(() => {});
-      axios.get(`${baseUrl}/api/sync-transfers`).catch(() => {});
+      axios.post("/api/debug-refund").catch(() => {});
+      axios.get("/api/sync-transfers").catch(() => {});
       
       const q = query(
         collection(db, "transactions"),
@@ -153,13 +320,13 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
         limit(50),
       );
       const snap = await getDocs(q);
-      const fetched = snap.docs.map((doc) => {
+      const fetched: any[] = snap.docs.map((doc) => {
         const data = doc.data();
 
         // Sync pending PayMongo transfer status continuously
         if (data.status === "pending" && data.metadata?.transferId) {
           axios
-            .get(`${baseUrl}/api/paymongo-transfer/${data.metadata.transferId}`)
+            .get(`/api/paymongo-transfer/${data.metadata.transferId}`)
             .then(async (res) => {
               const transferStatus =
                 res.data?.data?.status || res.data?.data?.attributes?.status;
@@ -218,9 +385,7 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
     setLoadingBalance(true);
     setErrorMessage("");
     try {
-      // ✅ FIXED: Dynamically injects VITE_API_URL route to map directly out to your Render server
-      const baseUrl = import.meta.env.VITE_API_URL || "";
-      const response = await axios.get(`${baseUrl}/api/paymongo-balance`);
+      const response = await axios.get("/api/paymongo-balance");
       setBalance(response.data.balance || 0);
     } catch (error: any) {
       console.error("Failed to fetch balance:", error);
@@ -258,8 +423,7 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
     const calculatedFee = calculateFee(parsedAmount);
 
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || "";
-      const response = await axios.post(`${baseUrl}/api/create-batch-transfer`, {
+      const response = await axios.post("/api/create-batch-transfer", {
         recipientAccountNumber: accountNumber,
         recipientAccountName: accountName,
         recipientBankBic: provider.code,
@@ -361,7 +525,7 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
           {!isPadalaOnlyUser && (
             <button
               onClick={() => navigate("dashboard")}
-              className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-indigo-600/20 transition-all font-sans"
+              className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-indigo-600/20 transition-all font-sans mb-4"
             >
               Back to Dashboard
             </button>
@@ -370,16 +534,22 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
           <button
             onClick={() => {
               setStatus("idle");
-              setAmount("");
-              setAccountName("");
-              setAccountNumber("");
-              setDescription("");
+              if (activeTab === "send-money") {
+                setAmount("");
+                setAccountName("");
+                setAccountNumber("");
+                setDescription("");
+              } else {
+                setEloadPhone("");
+                setEloadAmount("");
+                setEloadPromo("");
+              }
               fetchBalance();
               fetchTransactions();
             }}
             className={`w-full py-4 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all font-sans ${isPadalaOnlyUser ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-xl shadow-indigo-600/20' : 'bg-white/5 hover:bg-white/10 text-slate-300'}`}
           >
-            Make Another Transfer
+            {activeTab === "send-money" ? "Make Another Transfer" : "Buy Another Load"}
           </button>
         </motion.div>
       </div>
@@ -493,7 +663,7 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
       </aside>
 
       <main className="flex-1 overflow-y-auto max-h-screen relative z-10 scrollbar-hide min-w-0">
-        <div className="max-w-xl mx-auto px-6 py-6 lg:py-10">
+        <div className="w-full max-w-5xl mx-auto px-4 sm:px-6 py-6 lg:py-10">
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
               <button
@@ -608,10 +778,124 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
           </div>
         </motion.div>
 
-        <motion.form
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ delay: 0.1 }}
+        
+        
+
+
+        {/* Tabs */}
+          <div className="flex bg-[#111218]/50 border border-white/5 rounded-2xl p-1 mb-8">
+            <button
+              onClick={() => { setActiveTab("send-money"); setStatus("idle"); setErrorMessage(""); }}
+              className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${activeTab === "send-money" ? "bg-white dark:bg-white/10 text-indigo-600 dark:text-white shadow-md" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
+            >
+              Send Money
+            </button>
+            <button
+              onClick={() => { setActiveTab("dafox"); setStatus("idle"); setErrorMessage(""); }}
+              className={`flex-1 py-3 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${activeTab === "dafox" ? "bg-orange-500/10 text-orange-500 shadow-md border border-orange-500/20" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
+            >
+              DAFOX
+            </button>
+          </div>
+
+        
+        {activeTab === "send-money" && (
+          <motion.div
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.1 }}
+            className="space-y-6 max-w-2xl mx-auto"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-[#111218] border border-white/5 rounded-[1.5rem] p-6 flex flex-col justify-between min-h-[140px] group hover:-translate-y-1 hover:border-emerald-500/30 transition-all shadow-lg relative overflow-hidden">
+                <div className="flex justify-between items-start z-10">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400/80">Account Executive</span>
+                    <div className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter truncate">
+                      {user?.customUsername || user?.name || "User"}
+                    </div>
+                  </div>
+                  <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 shadow-inner">
+                    <User className="w-5 h-5 text-emerald-400" />
+                  </div>
+                </div>
+                <div className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1.5 z-10">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Active Session
+                </div>
+                <div className="absolute right-0 bottom-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-[40px] group-hover:bg-emerald-500/10 transition-all pointer-events-none" />
+              </div>
+              
+              <div className="bg-[#111218] border border-white/5 rounded-[1.5rem] p-6 flex flex-col justify-between min-h-[140px] group hover:-translate-y-1 hover:border-rose-500/30 transition-all shadow-lg relative overflow-hidden">
+                <div className="flex justify-between items-start z-10">
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-rose-400/80">Total Amount To Pay</span>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-xl font-black text-slate-500">₱</span>
+                      <span className="text-3xl md:text-4xl font-black text-white uppercase tracking-tighter tabular-nums leading-none">
+                        {(filteredTransactions.filter(tx => tx.status === 'completed' || tx.status === 'succeeded').reduce((sum, tx) => sum + (tx.type === "e_load" ? Number(tx.amount || 0) : (Number(tx.amount || 0) / 100) + (tx.metadata?.fee || 10)), 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="w-10 h-10 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0 shadow-inner">
+                    <Activity className="w-5 h-5 text-rose-400" />
+                  </div>
+                </div>
+                <div className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1.5 z-10">
+                  <div className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Including Service Fee
+                </div>
+                <div className="absolute right-0 bottom-0 w-32 h-32 bg-rose-500/5 rounded-full blur-[40px] group-hover:bg-rose-500/10 transition-all pointer-events-none" />
+              </div>
+
+              <div className="bg-gradient-to-br from-[#111218] to-[#151623] border border-indigo-500/20 rounded-[1.5rem] p-8 flex flex-col justify-between min-h-[160px] group hover:-translate-y-1 hover:border-indigo-500/40 transition-all shadow-xl shadow-indigo-900/20 relative overflow-hidden md:col-span-2 lg:col-span-1">
+                <div className="flex justify-between items-start z-10">
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400/80">Total Value Deducted</span>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-black text-indigo-500">₱</span>
+                      <span className="text-4xl md:text-5xl font-black text-white uppercase tracking-tighter tabular-nums leading-none">
+                        {(
+                          filteredTransactions.filter(tx => tx.status === 'completed' || tx.status === 'succeeded')
+                          .reduce((sum, tx) => sum + (tx.amount / 100) + 10, 0)
+                        ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0 shadow-inner">
+                    <Banknote className="w-6 h-6 text-indigo-400" />
+                  </div>
+                </div>
+                <div className="text-[10px] font-bold text-indigo-300/60 uppercase mt-4 flex items-center gap-2 z-10">
+                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" /> Base 10.00 PHP System Deduction Applied
+                </div>
+                <div className="absolute right-0 bottom-0 w-48 h-48 bg-indigo-500/10 rounded-full blur-[60px] group-hover:bg-indigo-500/20 transition-all pointer-events-none" />
+              </div>
+
+              <div className="bg-gradient-to-br from-[#111218] to-[#181511] border border-amber-500/20 rounded-[1.5rem] p-8 flex flex-col justify-between min-h-[160px] group hover:-translate-y-1 hover:border-amber-500/40 transition-all shadow-xl shadow-amber-900/20 relative overflow-hidden md:col-span-2 lg:col-span-1">
+                <div className="flex justify-between items-start z-10">
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-400/80">Net Profit</span>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-black text-amber-500">₱</span>
+                      <span className="text-4xl md:text-5xl font-black text-white uppercase tracking-tighter tabular-nums leading-none">
+                        {(
+                          filteredTransactions.filter(tx => tx.status === 'completed' || tx.status === 'succeeded')
+                          .reduce((sum, tx) => sum + Math.max(0, (tx.metadata?.fee || 10) - 10), 0)
+                        ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 shadow-inner">
+                    <TrendingUp className="w-6 h-6 text-amber-400" />
+                  </div>
+                </div>
+                <div className="text-[10px] font-bold text-amber-300/60 uppercase mt-4 flex items-center gap-2 z-10">
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Total Revenue Less System Deduction
+                </div>
+                <div className="absolute right-0 bottom-0 w-48 h-48 bg-amber-500/10 rounded-full blur-[60px] group-hover:bg-amber-500/20 transition-all pointer-events-none" />
+              </div>
+            </div>
+
+          <form
           onSubmit={handleTransfer}
           className="bg-[#111218] border border-white/5 p-8 rounded-[2.5rem] shadow-2xl space-y-8"
         >
@@ -790,7 +1074,25 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
               </>
             )}
           </button>
-        </motion.form>
+          </form>
+          </motion.div>
+        )}
+        
+        
+
+
+
+        {activeTab === "dafox" && (
+          <motion.div
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.1 }}
+          >
+            <DafoxTerminal user={user} />
+          </motion.div>
+        )}
+
+
 
         {/* Transaction History Section */}
         <motion.div
@@ -823,94 +1125,73 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
           </div>
 
           {!loadingTx && filteredTransactions.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <div className="bg-[#111218] border border-white/5 rounded-[1.5rem] p-6 flex flex-col justify-between min-h-[140px] group hover:-translate-y-1 hover:border-emerald-500/30 transition-all shadow-lg relative overflow-hidden">
-                <div className="flex justify-between items-start z-10">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400/80">Account Executive</span>
-                    <div className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter truncate">
-                      {user?.customUsername || user?.name || "User"}
-                    </div>
-                  </div>
-                  <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 shadow-inner">
-                    <User className="w-5 h-5 text-emerald-400" />
-                  </div>
-                </div>
-                <div className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1.5 z-10">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Active Session
-                </div>
-                <div className="absolute right-0 bottom-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-[40px] group-hover:bg-emerald-500/10 transition-all pointer-events-none" />
-              </div>
-              
-              <div className="bg-[#111218] border border-white/5 rounded-[1.5rem] p-6 flex flex-col justify-between min-h-[140px] group hover:-translate-y-1 hover:border-rose-500/30 transition-all shadow-lg relative overflow-hidden">
-                <div className="flex justify-between items-start z-10">
-                  <div className="flex flex-col gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-rose-400/80">Total Fees Collected</span>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-xl font-black text-slate-500">₱</span>
-                      <span className="text-3xl md:text-4xl font-black text-white uppercase tracking-tighter tabular-nums leading-none">
-                        {(filteredTransactions.filter(tx => tx.status === 'completed' || tx.status === 'succeeded').reduce((sum, tx) => sum + (tx.metadata?.fee || 10), 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="w-10 h-10 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0 shadow-inner">
-                    <Activity className="w-5 h-5 text-rose-400" />
-                  </div>
-                </div>
-                <div className="text-[9px] font-bold text-slate-500 uppercase flex items-center gap-1.5 z-10">
-                  <div className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Dynamic Fee Pool
-                </div>
-                <div className="absolute right-0 bottom-0 w-32 h-32 bg-rose-500/5 rounded-full blur-[40px] group-hover:bg-rose-500/10 transition-all pointer-events-none" />
-              </div>
+          <>
+          {/* User Remittance Summaries Section */}
+          {!loadingTx && Object.keys(userSummaries).length > 0 && isAdmin && (
+            <div className="mb-8 bg-[#111218] border border-white/5 rounded-[2rem] p-6 shadow-2xl relative overflow-hidden">
+               <div className="flex items-center gap-3 mb-6 relative z-10">
+                 <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shrink-0">
+                   <Users className="w-5 h-5 text-indigo-400" />
+                 </div>
+                 <div>
+                   <h3 className="text-sm font-black text-white uppercase tracking-widest">Cashier Remittances</h3>
+                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Total Amount to Pay Collection</span>
+                 </div>
+               </div>
 
-              <div className="bg-gradient-to-br from-[#111218] to-[#151623] border border-indigo-500/20 rounded-[1.5rem] p-8 flex flex-col justify-between min-h-[160px] group hover:-translate-y-1 hover:border-indigo-500/40 transition-all shadow-xl shadow-indigo-900/20 relative overflow-hidden">
-                <div className="flex justify-between items-start z-10">
-                  <div className="flex flex-col gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400/80">Total Value Deducted</span>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-black text-indigo-500">₱</span>
-                      <span className="text-4xl md:text-5xl font-black text-white uppercase tracking-tighter tabular-nums leading-none">
-                        {(
-                          filteredTransactions.filter(tx => tx.status === 'completed' || tx.status === 'succeeded')
-                          .reduce((sum, tx) => sum + (tx.amount / 100) + 10, 0)
-                        ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="w-12 h-12 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0 shadow-inner">
-                    <Banknote className="w-6 h-6 text-indigo-400" />
-                  </div>
-                </div>
-                <div className="text-[10px] font-bold text-indigo-300/60 uppercase mt-4 flex items-center gap-2 z-10">
-                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" /> Base 10.00 PHP System Deduction Applied
-                </div>
-                <div className="absolute right-0 bottom-0 w-48 h-48 bg-indigo-500/10 rounded-full blur-[60px] group-hover:bg-indigo-500/20 transition-all pointer-events-none" />
-              </div>
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 relative z-10">
+                 {Object.entries(userSummaries).map(([username, total]) => {
+                   const statusValue = remittanceStatus[username] || "not-remitted";
+                   const isRemitted = statusValue === "remitted";
 
-              <div className="bg-gradient-to-br from-[#111218] to-[#181511] border border-amber-500/20 rounded-[1.5rem] p-8 flex flex-col justify-between min-h-[160px] group hover:-translate-y-1 hover:border-amber-500/40 transition-all shadow-xl shadow-amber-900/20 relative overflow-hidden">
-                <div className="flex justify-between items-start z-10">
-                  <div className="flex flex-col gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-400/80">Net Profit</span>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-black text-amber-500">₱</span>
-                      <span className="text-4xl md:text-5xl font-black text-white uppercase tracking-tighter tabular-nums leading-none">
-                        {(
-                          filteredTransactions.filter(tx => tx.status === 'completed' || tx.status === 'succeeded')
-                          .reduce((sum, tx) => sum + Math.max(0, (tx.metadata?.fee || 10) - 10), 0)
-                        ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 shadow-inner">
-                    <TrendingUp className="w-6 h-6 text-amber-400" />
-                  </div>
-                </div>
-                <div className="text-[10px] font-bold text-amber-300/60 uppercase mt-4 flex items-center gap-2 z-10">
-                  <div className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Total Revenue Less System Deduction
-                </div>
-                <div className="absolute right-0 bottom-0 w-48 h-48 bg-amber-500/10 rounded-full blur-[60px] group-hover:bg-amber-500/20 transition-all pointer-events-none" />
-              </div>
+                   return (
+                     <div key={username} className={`p-5 rounded-2xl border transition-all ${isRemitted ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-[#15161d] border-white/5 hover:border-white/10'}`}>
+                       <div className="flex flex-col items-start mb-4 bg-transparent gap-3">
+                         <div className="flex items-center justify-between w-full">
+                           <div className="font-black text-sm uppercase text-white truncate min-w-0 tracking-widest" title={username}>{username}</div>
+                           {isAdmin && (
+                             <button
+                               onClick={(e) => handleCashierDelete(e, username)}
+                               className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 hover:scale-105 active:scale-95 transition-all shrink-0 ml-2"
+                               title="Delete Cashier Records"
+                             >
+                               <Trash2 className="w-4 h-4" />
+                             </button>
+                           )}
+                         </div>
+                         <div className="relative w-full">
+                           <select 
+                             value={statusValue} 
+                             onChange={(e) => toggleRemittance(username, e.target.value as any)}
+                             className={`w-full text-[9px] font-black uppercase tracking-widest py-2 pl-3 pr-8 rounded-lg appearance-none cursor-pointer focus:outline-none transition-colors ${isRemitted ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}
+                           >
+                             <option value="not-remitted" className="bg-[#111218] text-rose-400">Not Remitted</option>
+                             <option value="remitted" className="bg-[#111218] text-emerald-400">Remitted</option>
+                           </select>
+                           <ChevronDown className={`w-3 h-3 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none ${isRemitted ? 'text-emerald-400' : 'text-rose-400'}`} />
+                         </div>
+                       </div>
+                       
+                       <div className="space-y-1">
+                         <span className={`text-[9px] font-black uppercase tracking-widest ${isRemitted ? 'text-emerald-500/80' : 'text-slate-500'}`}>
+                           {isRemitted ? 'Collected' : 'Pending Collection'}
+                         </span>
+                         <div className="flex items-baseline gap-1">
+                           <span className={`text-lg font-black ${isRemitted ? 'text-emerald-500' : 'text-slate-500'}`}>₱</span>
+                           <span className={`text-2xl font-black uppercase tracking-tighter tabular-nums leading-none ${isRemitted ? 'text-emerald-400' : 'text-white'}`}>
+                             {Number(total).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                           </span>
+                         </div>
+                       </div>
+                     </div>
+                   );
+                 })}
+               </div>
             </div>
+          )}
+
+            
+          </>
           )}
 
           <div className="bg-[#111218] border border-white/5 rounded-[2rem] overflow-hidden shadow-2xl">
@@ -961,6 +1242,11 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
                           {tx.type} •{" "}
                           {tx.metadata?.bic || tx.metadata?.account || "-"}
                         </p>
+                        {remittanceStatus[tx.metadata?.senderUsername || "Unknown"] === "remitted" && (
+                           <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                             Collected
+                           </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-6">
@@ -1009,6 +1295,45 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
       </div>
 
       <AnimatePresence>
+                {cashierToDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            onClick={() => setCashierToDelete(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#111218] border border-rose-500/20 p-8 rounded-[2rem] w-full max-w-sm shadow-2xl relative text-center"
+            >
+              <div className="w-16 h-16 bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Trash2 className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-black text-white uppercase tracking-tighter mb-2">Delete Remittance</h3>
+              <p className="text-sm font-medium text-slate-400 mb-8">
+                Are you sure you want to delete all visible transaction records for <span className="text-white font-black">{cashierToDelete}</span>? This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setCashierToDelete(null)}
+                  className="flex-1 py-4 bg-white/5 hover:bg-white/10 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteCashier}
+                  className="flex-1 py-4 bg-rose-500 hover:bg-rose-400 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-colors shadow-lg shadow-rose-500/20"
+                >
+                  Delete All
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
         {recordToDelete && (
           <motion.div
             initial={{ opacity: 0 }}
