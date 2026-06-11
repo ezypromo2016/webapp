@@ -304,7 +304,6 @@ export const API = {
           txns = Storage.get("cached_transactions") || [];
         }
 
-
         result = { data: txns };
         if (txns.length > 0) Storage.set("cached_transactions", txns);
       } else if (path === "/customers") {
@@ -322,11 +321,22 @@ export const API = {
         if (customers.length === 0) {
           const cached = await dexieDb.customers.toArray();
           customers = cached.length > 0 ? cached : [];
+          if (customers.length === 0) {
+            try {
+              const resp = await fetch("/customers.json").catch(() => fetch("/data.json"));
+              const staticData = await resp.json();
+              customers = staticData.customers || staticData;
+            } catch (e) {
+              console.warn("Could not load static customer data:", e);
+              customers = Storage.get("cached_customers") || [];
+            }
+          }
         }
 
         result = { data: customers };
         if (customers.length > 0) {
           await dexieDb.customers.bulkPut(customers);
+          Storage.set("cached_customers", customers);
         }
       } else if (path === "/staff") {
         let staff: any[] = [];
@@ -405,7 +415,6 @@ export const API = {
         }
       } else if (path === "/dashboard/summary") {
         let txns: any[] = [];
-        let pendingTxns: any[] = [];
         let printing: any[] = [];
         let products: any[] = [];
         let sosCredits: any[] = [];
@@ -447,28 +456,14 @@ export const API = {
           txns = Storage.get("cached_transactions") || [];
         }
 
-        try {
-          const pending = await dexieDb.pendingTransactions.where('path').equals('/transactions').toArray();
-          pendingTxns = pending.map((p: any) => ({
-             ...p.data,
-             _id: p.data.id || p.data._id,
-             queued: true,
-             localId: p.id
-          }));
-        } catch(e) {}
-        
-        txns = [...pendingTxns, ...txns];
-
         if (printing.length === 0) {
           printing = Storage.get("cached_printing") || [];
         }
 
         const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
         const currentYear = now.getFullYear();
         const currentMonth = now.getMonth();
-        const currentDate = now.getDate();
-        const startOfMonth = new Date(currentYear, currentMonth, 1, 0, 0, 0, 0);
-        const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999);
 
         // Include SOS credits in calculations if status is completed
         const completedSOS = sosCredits.filter(s => s.paymentStatus === 'completed' && s.status !== 'voided');
@@ -476,44 +471,32 @@ export const API = {
         const activeTxns = txns.filter(t => t.status !== 'voided');
         const activePrinting = printing.filter(p => p.status !== 'voided');
 
-        const todayTxns = activeTxns.filter(d => {
-          if (!d.created_at && !d.createdAt) return false;
-          const date = new Date((d.created_at || d.createdAt));
-          return date.getFullYear() === currentYear && date.getMonth() === currentMonth && date.getDate() === currentDate;
-        });
-        const todayPrinting = activePrinting.filter(d => {
-          if (!d.created_at && !d.createdAt) return false;
-          const date = new Date((d.created_at || d.createdAt));
-          return date.getFullYear() === currentYear && date.getMonth() === currentMonth && date.getDate() === currentDate;
-        });
-        const todaySOS = completedSOS.filter(s => {
-          const dateStr = s.completedAt || s.timestamp;
-          if (!dateStr) return false;
-          const date = new Date(dateStr);
-          return date.getFullYear() === currentYear && date.getMonth() === currentMonth && date.getDate() === currentDate;
-        });
+        const todayTxns = activeTxns.filter(d => d.created_at?.startsWith(todayStr));
+        const todayPrinting = activePrinting.filter(d => d.created_at?.startsWith(todayStr));
+        const todaySOS = completedSOS.filter(s => s.completedAt?.startsWith(todayStr) || (s.paymentStatus === 'completed' && s.timestamp?.startsWith(todayStr)));
 
         const monthlyTxns = activeTxns.filter(d => {
-          if (!d.created_at && !d.createdAt) return false;
-          const date = new Date((d.created_at || d.createdAt));
-          return date >= startOfMonth && date <= endOfMonth;
+          if (!d.created_at) return false;
+          const date = new Date(d.created_at);
+          return date.getFullYear() === currentYear && date.getMonth() === currentMonth;
         });
         const monthlyPrinting = activePrinting.filter(d => {
-          if (!d.created_at && !d.createdAt) return false;
-          const date = new Date((d.created_at || d.createdAt));
-          return date >= startOfMonth && date <= endOfMonth;
+          if (!d.created_at) return false;
+          const date = new Date(d.created_at);
+          return date.getFullYear() === currentYear && date.getMonth() === currentMonth;
         });
         const monthlySOS = completedSOS.filter(s => {
           const dateStr = s.completedAt || s.timestamp;
           if (!dateStr) return false;
           const date = new Date(dateStr);
-          return date >= startOfMonth && date <= endOfMonth;
+          return date.getFullYear() === currentYear && date.getMonth() === currentMonth;
         });
 
         const calculateProfit = (records: any[]) => {
-          return records.reduce((acc, txn) => {
-            if (!txn.items) return acc;
-            return acc + txn.items.reduce((sum: number, item: any) => sum + ((item.qty || item.quantity || 0) * ((item.price || 0) - (item.cost || 0))), 0);
+          return records.reduce((acc, d) => {
+            const revenue = d.total || 0;
+            const cost = d.items?.reduce((sum: number, i: any) => sum + (i.cost || 0) * (i.qty || i.quantity || 0), 0) || 0;
+            return acc + (revenue - cost);
           }, 0);
         };
 
@@ -598,7 +581,6 @@ export const API = {
             if (dateStr && chartData[dateStr]) chartData[dateStr].total += (data.total || 0);
           }
         });
-
 
         result = { data: Object.values(chartData).sort((a, b) => a.date.localeCompare(b.date)) };
       } else if (path === "/dashboard/payment-breakdown") {
@@ -737,7 +719,9 @@ export const API = {
 
   async getPayMongoBalance() {
     try {
-      const response = await axios.get("/api/paymongo-balance");
+      // ✅ FIXED: Dynamically prepends the production VITE_API_URL route to prevent relative domain loops
+      const baseUrl = import.meta.env.VITE_API_URL || "";
+      const response = await axios.get(`${baseUrl}/api/paymongo-balance`);
       return { data: response.data };
     } catch (err: any) {
       console.error("API Get PayMongo Balance Failure:", err);
@@ -788,7 +772,7 @@ export const API = {
         const batch = writeBatch(firestore);
         
         // Include items in main document
-        batch.set(txnRef, { ...dataWithId, created_at: dataWithI(d.created_at || d.createdAt) || new Date().toISOString() });
+        batch.set(txnRef, { ...dataWithId, created_at: dataWithId.created_at || new Date().toISOString() });
         
         // Deduct stock from products on Firestore and prepare subcollection items
         for (const item of dataWithId.items) {

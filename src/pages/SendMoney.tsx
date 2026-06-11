@@ -143,8 +143,9 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
     setLoadingTx(true);
     try {
       // Async sync from PayMongo for pending records
-      axios.post("/api/debug-refund").catch(() => {});
-      axios.get("/api/sync-transfers").catch(() => {});
+      const baseUrl = import.meta.env.VITE_API_URL || "";
+      axios.post(`${baseUrl}/api/debug-refund`).catch(() => {});
+      axios.get(`${baseUrl}/api/sync-transfers`).catch(() => {});
       
       const q = query(
         collection(db, "transactions"),
@@ -152,13 +153,13 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
         limit(50),
       );
       const snap = await getDocs(q);
-      const fetched: any[] = snap.docs.map((doc) => {
+      const fetched = snap.docs.map((doc) => {
         const data = doc.data();
 
         // Sync pending PayMongo transfer status continuously
         if (data.status === "pending" && data.metadata?.transferId) {
           axios
-            .get(`/api/paymongo-transfer/${data.metadata.transferId}`)
+            .get(`${baseUrl}/api/paymongo-transfer/${data.metadata.transferId}`)
             .then(async (res) => {
               const transferStatus =
                 res.data?.data?.status || res.data?.data?.attributes?.status;
@@ -217,7 +218,9 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
     setLoadingBalance(true);
     setErrorMessage("");
     try {
-      const response = await axios.get("/api/paymongo-balance");
+      // ✅ FIXED: Dynamically injects VITE_API_URL route to map directly out to your Render server
+      const baseUrl = import.meta.env.VITE_API_URL || "";
+      const response = await axios.get(`${baseUrl}/api/paymongo-balance`);
       setBalance(response.data.balance || 0);
     } catch (error: any) {
       console.error("Failed to fetch balance:", error);
@@ -255,7 +258,8 @@ export default function SendMoney({ navigate }: SendMoneyProps) {
     const calculatedFee = calculateFee(parsedAmount);
 
     try {
-      const response = await axios.post("/api/create-batch-transfer", {
+      const baseUrl = import.meta.env.VITE_API_URL || "";
+      const response = await axios.post(`${baseUrl}/api/create-batch-transfer`, {
         recipientAccountNumber: accountNumber,
         recipientAccountName: accountName,
         recipientBankBic: provider.code,
